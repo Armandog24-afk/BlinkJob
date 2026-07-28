@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "blinkjob-dev",
+      "runtimeExecutable": "cmd.exe",
+      "runtimeArgs": ["/c", "C:\\Users\\ArmandoGervasi\\Desktop\\BlinkJob\\scripts\\dev-with-path.cmd"],
+      "port": 3000,
+      "autoPort": true
+    }
+  ]
+}

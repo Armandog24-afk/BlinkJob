@@ -1,0 +1,209 @@
+import { notFound, redirect } from "next/navigation";
+import { createClient } from "@/lib/supabase/server";
+import { getCurrentUser } from "@/lib/auth/session";
+import { getCurrentMembership } from "@/features/companies/queries";
+import { getCandidatesForJob } from "@/features/matching/queries";
+import { DashboardShell } from "@/components/dashboard-shell";
+import { JobStatusActions } from "@/features/jobs/components/job-status-actions";
+import { InviteButton } from "@/features/applications/components/invite-button";
+import { ApplicationDecisionButtons } from "@/features/applications/components/application-decision-buttons";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { formatCents } from "@/lib/utils";
+
+const NAV_ITEMS = [
+  { href: "/company/dashboard", label: "Panoramica" },
+  { href: "/company/jobs", label: "Incarichi" },
+  { href: "/company/assignments", label: "Assegnazioni" },
+  { href: "/company/payments", label: "Pagamenti" },
+  { href: "/company/locations", label: "Sedi" },
+  { href: "/company/team", label: "Team" },
+];
+
+const STATUS_LABEL: Record<string, string> = {
+  sent: "Inviata",
+  viewed: "Vista",
+  shortlisted: "In shortlist",
+  info_requested: "Info richieste",
+  accepted: "Accettata",
+  rejected: "Rifiutata",
+  withdrawn: "Ritirata",
+  expired: "Scaduta",
+};
+
+const DECIDABLE = new Set(["sent", "viewed", "shortlisted", "info_requested"]);
+
+export default async function CompanyJobDetailPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const { id } = await params;
+  const user = await getCurrentUser();
+  if (!user) redirect("/login");
+
+  const membership = await getCurrentMembership(user.id);
+  if (!membership) redirect("/company/onboarding");
+
+  const supabase = await createClient();
+  const { data: job } = await supabase
+    .from("jobs")
+    .select(
+      "id, title, description, category, status, positions_count, pay_amount_cents, pay_currency, starts_at, ends_at, application_deadline, company_id, company_locations(label, address)"
+    )
+    .eq("id", id)
+    .single();
+
+  if (!job || job.company_id !== membership.companyId) notFound();
+
+  const location = Array.isArray(job.company_locations)
+    ? job.company_locations[0]
+    : job.company_locations;
+
+  const [{ data: requirements }, candidates, { data: applications }, { count: confirmedCount }] =
+    await Promise.all([
+      supabase.from("job_requirements").select("mandatory, skill_taxonomy(name)").eq("job_id", job.id),
+      job.status === "published" ? getCandidatesForJob(job.id) : Promise.resolve([]),
+      supabase
+        .from("applications")
+        .select("id, worker_id, type, status, worker_profiles(user_id, users(full_name))")
+        .eq("job_id", job.id)
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("assignments")
+        .select("id", { count: "exact", head: true })
+        .eq("job_id", job.id)
+        .neq("status", "canceled"),
+    ]);
+
+  const appliedWorkerIds = new Set((applications ?? []).map((a) => a.worker_id));
+  const positionsFilled = (confirmedCount ?? 0) >= job.positions_count;
+
+  return (
+    <DashboardShell title="Area azienda" navItems={NAV_ITEMS} userLabel={user.full_name}>
+      <div className="mx-auto max-w-2xl space-y-6">
+        <div className="flex items-center justify-between">
+          <h1 className="text-2xl font-semibold">{job.title}</h1>
+          <Badge variant={job.status === "published" ? "default" : "secondary"}>
+            {job.status}
+          </Badge>
+        </div>
+
+        <JobStatusActions jobId={job.id} status={job.status} />
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Dettagli</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            <p>{job.description}</p>
+            <p className="text-muted-foreground">Categoria: {job.category}</p>
+            <p className="text-muted-foreground">
+              Sede: {location?.label} — {location?.address}
+            </p>
+            <p className="text-muted-foreground">
+              {new Date(job.starts_at).toLocaleString("it-IT")} →{" "}
+              {new Date(job.ends_at).toLocaleString("it-IT")}
+            </p>
+            <p className="text-muted-foreground">
+              Scadenza candidature: {new Date(job.application_deadline).toLocaleString("it-IT")}
+            </p>
+            <p className="text-muted-foreground">
+              Compenso: {formatCents(job.pay_amount_cents, job.pay_currency)} ·{" "}
+              {confirmedCount ?? 0}/{job.positions_count} posizion
+              {job.positions_count === 1 ? "e coperta" : "i coperte"}
+            </p>
+          </CardContent>
+        </Card>
+
+        {requirements && requirements.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Competenze richieste</CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-wrap gap-2">
+              {requirements.map((r, i) => {
+                const skill = Array.isArray(r.skill_taxonomy) ? r.skill_taxonomy[0] : r.skill_taxonomy;
+                return (
+                  <Badge key={i} variant={r.mandatory ? "default" : "secondary"}>
+                    {skill?.name} {r.mandatory ? "(obbligatoria)" : "(preferenziale)"}
+                  </Badge>
+                );
+              })}
+            </CardContent>
+          </Card>
+        )}
+
+        {applications && applications.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Candidature e inviti ({applications.length})</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {applications.map((app) => {
+                const workerProfile = Array.isArray(app.worker_profiles)
+                  ? app.worker_profiles[0]
+                  : app.worker_profiles;
+                const workerUser = workerProfile
+                  ? Array.isArray(workerProfile.users)
+                    ? workerProfile.users[0]
+                    : workerProfile.users
+                  : null;
+                return (
+                  <div key={app.id} className="rounded-md border p-3">
+                    <div className="flex items-center justify-between">
+                      <p className="font-medium">{workerUser?.full_name}</p>
+                      <div className="flex gap-2">
+                        <Badge variant="outline">{app.type === "invite" ? "Invito" : "Candidatura"}</Badge>
+                        <Badge>{STATUS_LABEL[app.status] ?? app.status}</Badge>
+                      </div>
+                    </div>
+                    {DECIDABLE.has(app.status) && !positionsFilled && (
+                      <div className="mt-2">
+                        <ApplicationDecisionButtons applicationId={app.id} jobId={job.id} />
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </CardContent>
+          </Card>
+        )}
+
+        {job.status === "published" && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Candidati compatibili ({candidates.length})</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {candidates.length > 0 ? (
+                candidates.map((c) => (
+                  <div key={c.workerId} className="rounded-md border p-3">
+                    <div className="flex items-center justify-between">
+                      <p className="font-medium">{c.fullName}</p>
+                      <Badge>{c.score.toFixed(0)}% compatibile</Badge>
+                    </div>
+                    <ul className="mt-1 list-inside list-disc text-xs text-muted-foreground">
+                      {c.reasons.map((reason, i) => (
+                        <li key={i}>{reason}</li>
+                      ))}
+                    </ul>
+                    {!appliedWorkerIds.has(c.workerId) && (
+                      <div className="mt-2">
+                        <InviteButton jobId={job.id} workerId={c.workerId} />
+                      </div>
+                    )}
+                  </div>
+                ))
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Nessun lavoratore compatibile trovato per ora.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        )}
+      </div>
+    </DashboardShell>
+  );
+}
