@@ -49,6 +49,50 @@ export async function setCompanyStatusAction(
   return {};
 }
 
+export async function setFeatureFlagAction(key: string, enabledGlobally: boolean): Promise<ActionState> {
+  const supabase = await requireUser();
+  const { error } = await supabase.rpc("admin_set_feature_flag", {
+    p_key: key,
+    p_enabled_globally: enabledGlobally,
+  });
+  if (error) {
+    console.error("[setFeatureFlagAction] rpc error:", error);
+    return { error: "Impossibile aggiornare il feature flag." };
+  }
+  revalidatePath("/admin/dashboard");
+  return {};
+}
+
+export async function adjustPointsAction(
+  _prevState: ActionState,
+  formData: FormData
+): Promise<ActionState> {
+  const userId = formData.get("userId");
+  const points = formData.get("points");
+  const reason = formData.get("reason");
+
+  if (typeof userId !== "string" || typeof reason !== "string" || !reason.trim()) {
+    return { error: "Inserisci un motivo per la rettifica." };
+  }
+  const parsedPoints = Number(points);
+  if (!Number.isInteger(parsedPoints) || parsedPoints === 0) {
+    return { error: "Inserisci un numero di punti valido (diverso da zero)." };
+  }
+
+  const supabase = await requireUser();
+  const { error } = await supabase.rpc("admin_adjust_points", {
+    p_user_id: userId,
+    p_points: parsedPoints,
+    p_reason: reason.trim(),
+  });
+  if (error) {
+    console.error("[adjustPointsAction] rpc error:", error);
+    return { error: "Impossibile rettificare i punti." };
+  }
+  revalidatePath("/admin/users");
+  return {};
+}
+
 export async function resolveDisputeAction(
   _prevState: ActionState,
   formData: FormData

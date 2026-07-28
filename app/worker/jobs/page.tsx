@@ -43,7 +43,12 @@ export default async function WorkerJobsFeedPage() {
             jobs.map((job) => (
               <Card key={job.jobId}>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0">
-                  <CardTitle className="text-base">{job.title}</CardTitle>
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    {job.title}
+                    {job.urgencyTier === "blinknow" && (
+                      <Badge variant="destructive">Urgente</Badge>
+                    )}
+                  </CardTitle>
                   <Badge>{job.score.toFixed(0)}% compatibile</Badge>
                 </CardHeader>
                 <CardContent className="space-y-2 text-sm text-muted-foreground">

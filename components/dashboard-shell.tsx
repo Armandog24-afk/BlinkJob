@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { LogoutButton } from "@/features/auth/components/logout-button";
+import { NotificationsBell } from "@/features/notifications/components/notifications-bell";
 
 export interface DashboardNavItem {
   href: string;
@@ -29,6 +30,7 @@ export function DashboardShell({
           </div>
           <div className="flex items-center gap-4">
             {userLabel && <span className="text-sm text-muted-foreground">{userLabel}</span>}
+            <NotificationsBell />
             <LogoutButton />
           </div>
         </div>

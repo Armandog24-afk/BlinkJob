@@ -65,6 +65,7 @@ Identità tecnica condivisa tra lavoratore e utente aziendale.
 | completeness_score | int | calcolato, non modificabile manualmente |
 | reliability_score | numeric | derivato da completions/no-show/cancellazioni |
 | verification_tier | enum(t0,t1,t2,t3) | vedi sez. 42.2 PRD, semplificato |
+| blinknow_opt_in | bool | default false; consenso esplicito richiesto per ricevere notifiche BlinkNow (M13) |
 
 ### worker_skills (N:M worker_profiles ↔ skill_taxonomy)
 | worker_id | skill_id | level (enum: base, intermedio, avanzato) | verified (bool) | verified_at |
@@ -146,6 +147,17 @@ Vincolo unique: (assignment_id, author_id).
 
 ### feature_flags
 | key | description | enabled_globally (bool) | enabled_cities (text[]) | enabled_categories (text[]) |
+
+### points_ledger (M14 — BlinkPoints, simulazione interna senza ricompense)
+| Campo | Tipo | Note |
+|---|---|---|
+| id | uuid PK | |
+| user_id | uuid FK → users | |
+| points | int | positivo o negativo (una revoca è una nuova riga negativa, mai una modifica) |
+| reason | text | es. `profile_completed_badge`, `review_contributed`, `assignment_completed_no_issues`, `admin_adjustment: ...` |
+| reference_type / reference_id | text / uuid | opzionali, puntano all'entità che ha originato il movimento |
+
+Append-only per design: nessuna policy RLS INSERT/UPDATE/DELETE per il client, scrittura solo tramite `award_points`/`admin_adjust_points` (security definer, gated dal flag `blinkpoints_enabled`).
 
 ## 4. Vincoli applicati (da sez. 15.2 PRD)
 

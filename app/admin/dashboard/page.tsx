@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth/session";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { FeatureFlagToggle } from "@/features/admin/components/feature-flag-toggle";
 import { formatCents } from "@/lib/utils";
 
 const NAV_ITEMS = [
@@ -45,6 +46,11 @@ export default async function AdminDashboardPage() {
     supabase.from("payments").select("net_amount_cents").eq("status", "paid"),
   ]);
 
+  const { data: featureFlags } = await supabase
+    .from("feature_flags")
+    .select("key, description, enabled_globally")
+    .order("key");
+
   const totalPaidCents = (paidPayments ?? []).reduce((sum, p) => sum + p.net_amount_cents, 0);
 
   const stats = [
@@ -74,6 +80,23 @@ export default async function AdminDashboardPage() {
             </Card>
           ))}
         </div>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Feature flags — funzionalità post-MVP</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {(featureFlags ?? []).map((flag) => (
+              <div key={flag.key} className="flex items-center justify-between gap-3 border-b pb-3 last:border-b-0 last:pb-0">
+                <div>
+                  <p className="text-sm font-medium">{flag.key}</p>
+                  <p className="text-xs text-muted-foreground">{flag.description}</p>
+                </div>
+                <FeatureFlagToggle flagKey={flag.key} enabledGlobally={flag.enabled_globally} />
+              </div>
+            ))}
+          </CardContent>
+        </Card>
       </div>
     </DashboardShell>
   );

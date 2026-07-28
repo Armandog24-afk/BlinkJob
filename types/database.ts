@@ -77,6 +77,7 @@ export interface Database {
           completeness_score: number;
           reliability_score: number;
           verification_tier: VerificationTier;
+          blinknow_opt_in: boolean;
           created_at: string;
           updated_at: string;
         };
@@ -89,6 +90,7 @@ export interface Database {
           completeness_score?: number;
           reliability_score?: number;
           verification_tier?: VerificationTier;
+          blinknow_opt_in?: boolean;
         };
         Update: Partial<Database["public"]["Tables"]["worker_profiles"]["Insert"]>;
         Relationships: [
@@ -730,6 +732,22 @@ export interface Database {
       };
       resolve_dispute: {
         Args: { p_dispute_id: string; p_resolution: string };
+        Returns: undefined;
+      };
+      is_blinknow_enabled_for_job: {
+        Args: { p_category: string };
+        Returns: boolean;
+      };
+      set_job_blinknow: {
+        Args: { p_job_id: string; p_enabled: boolean };
+        Returns: undefined;
+      };
+      admin_set_feature_flag: {
+        Args: { p_key: string; p_enabled_globally: boolean };
+        Returns: undefined;
+      };
+      admin_adjust_points: {
+        Args: { p_user_id: string; p_points: number; p_reason: string };
         Returns: undefined;
       };
     };

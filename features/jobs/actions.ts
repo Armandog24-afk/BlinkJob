@@ -163,3 +163,23 @@ export async function cancelJobAction(jobId: string): Promise<ActionState> {
   if (!user) redirect("/login");
   return transitionJobStatus(jobId, ["draft", "published"], "canceled", user.id);
 }
+
+export async function setJobBlinknowAction(jobId: string, enabled: boolean): Promise<ActionState> {
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("set_job_blinknow", {
+    p_job_id: jobId,
+    p_enabled: enabled,
+  });
+
+  if (error) {
+    console.error("[setJobBlinknowAction] error:", error);
+    return { error: error.message.includes("not enabled")
+      ? "BlinkNow non è ancora attivo per questa categoria di incarico."
+      : error.message.includes("verified")
+        ? "Solo le aziende verificate possono attivare BlinkNow."
+        : "Impossibile aggiornare la modalità urgente." };
+  }
+
+  revalidatePath(`/company/jobs/${jobId}`);
+  return {};
+}

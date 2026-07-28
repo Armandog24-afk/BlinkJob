@@ -5,6 +5,7 @@ import { getCurrentMembership } from "@/features/companies/queries";
 import { getCandidatesForJob } from "@/features/matching/queries";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { JobStatusActions } from "@/features/jobs/components/job-status-actions";
+import { BlinkNowToggle } from "@/features/jobs/components/blinknow-toggle";
 import { InviteButton } from "@/features/applications/components/invite-button";
 import { ApplicationDecisionButtons } from "@/features/applications/components/application-decision-buttons";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -49,12 +50,18 @@ export default async function CompanyJobDetailPage({
   const { data: job } = await supabase
     .from("jobs")
     .select(
-      "id, title, description, category, status, positions_count, pay_amount_cents, pay_currency, starts_at, ends_at, application_deadline, company_id, company_locations(label, address)"
+      "id, title, description, category, status, positions_count, pay_amount_cents, pay_currency, starts_at, ends_at, application_deadline, company_id, urgency_tier, company_locations(label, address), companies(status)"
     )
     .eq("id", id)
     .single();
 
   if (!job || job.company_id !== membership.companyId) notFound();
+
+  const jobCompany = Array.isArray(job.companies) ? job.companies[0] : job.companies;
+  const blinknowEligible =
+    job.status === "draft" &&
+    jobCompany?.status === "active" &&
+    (await supabase.rpc("is_blinknow_enabled_for_job", { p_category: job.category })).data === true;
 
   const location = Array.isArray(job.company_locations)
     ? job.company_locations[0]
@@ -84,12 +91,20 @@ export default async function CompanyJobDetailPage({
       <div className="mx-auto max-w-2xl space-y-6">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-semibold">{job.title}</h1>
-          <Badge variant={job.status === "published" ? "default" : "secondary"}>
-            {job.status}
-          </Badge>
+          <div className="flex gap-2">
+            {job.urgency_tier === "blinknow" && <Badge variant="destructive">Urgente · BlinkNow</Badge>}
+            <Badge variant={job.status === "published" ? "default" : "secondary"}>
+              {job.status}
+            </Badge>
+          </div>
         </div>
 
-        <JobStatusActions jobId={job.id} status={job.status} />
+        <div className="flex flex-wrap items-start gap-3">
+          <JobStatusActions jobId={job.id} status={job.status} />
+          {job.status === "draft" && (
+            <BlinkNowToggle jobId={job.id} urgencyTier={job.urgency_tier} eligible={blinknowEligible} />
+          )}
+        </div>
 
         <Card>
           <CardHeader>

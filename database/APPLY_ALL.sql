@@ -1,6 +1,3 @@
--- ===================================================================
--- FILE: migrations/001_extensions_and_enums.sql
--- ===================================================================
 -- BlinkJob — 001: extensions and enum types
 -- Requires Supabase/Postgres with postgis available.
 
@@ -85,10 +82,6 @@ exception when duplicate_object then null; end $$;
 do $$ begin
   create type skill_taxonomy_status as enum ('active', 'deprecated');
 exception when duplicate_object then null; end $$;
-
--- ===================================================================
--- FILE: migrations/002_identity_and_companies.sql
--- ===================================================================
 -- BlinkJob — 002: users, worker profiles, skills, companies
 
 create table if not exists users (
@@ -177,10 +170,6 @@ create table if not exists company_locations (
 create index if not exists idx_worker_profiles_home_location on worker_profiles using gist (home_location);
 create index if not exists idx_company_locations_location on company_locations using gist (location);
 create index if not exists idx_worker_skills_skill on worker_skills (skill_id);
-
--- ===================================================================
--- FILE: migrations/003_jobs_and_matching.sql
--- ===================================================================
 -- BlinkJob — 003: jobs, requirements, applications, assignments
 
 create table if not exists jobs (
@@ -243,10 +232,6 @@ create index if not exists idx_applications_job on applications (job_id);
 create index if not exists idx_applications_worker on applications (worker_id);
 create index if not exists idx_assignments_job on assignments (job_id);
 create index if not exists idx_assignments_worker on assignments (worker_id);
-
--- ===================================================================
--- FILE: migrations/004_execution_and_payments.sql
--- ===================================================================
 -- BlinkJob — 004: check-in/out, payments (tracked ledger, no real PSP)
 
 create table if not exists check_events (
@@ -297,10 +282,6 @@ drop trigger if exists trg_payment_requires_completed_assignment on payments;
 create trigger trg_payment_requires_completed_assignment
   before insert or update on payments
   for each row execute function enforce_payment_requires_completed_assignment();
-
--- ===================================================================
--- FILE: migrations/005_reviews_disputes_notifications_audit.sql
--- ===================================================================
 -- BlinkJob — 005: reviews, disputes, notifications, audit log, feature flags
 
 create table if not exists reviews (
@@ -379,10 +360,6 @@ values
   ('blink_assistant_enabled', 'Abilita suggerimenti Blink Assistant', false),
   ('blinkpoints_enabled', 'Abilita ledger punti BlinkPoints', false)
 on conflict (key) do nothing;
-
--- ===================================================================
--- FILE: migrations/006_row_level_security.sql
--- ===================================================================
 -- BlinkJob — 006: Row Level Security policies
 -- Defense in depth: application code enforces RBAC too, but RLS is the last line of defense.
 
@@ -560,10 +537,6 @@ create policy audit_events_insert on audit_events for insert
 create policy feature_flags_read on feature_flags for select using (true);
 create policy feature_flags_staff_write on feature_flags for all
   using (is_admin_or_support()) with check (is_admin_or_support());
-
--- ===================================================================
--- FILE: migrations/007_user_provisioning_and_company_bootstrap.sql
--- ===================================================================
 -- BlinkJob — 007: auto-provision public.users on signup, and allow a brand-new
 -- company to be bootstrapped by its first owner (fixes a gap in 006_row_level_security.sql:
 -- there was no INSERT policy for `users`, and `company_members_manage` requires an existing
@@ -600,10 +573,6 @@ create policy company_members_bootstrap_owner on company_members for insert
       select 1 from company_members cm where cm.company_id = company_members.company_id
     )
   );
-
--- ===================================================================
--- FILE: migrations/008_create_company_with_owner_rpc.sql
--- ===================================================================
 -- BlinkJob — 008: atomic company + owner bootstrap.
 -- Fixes a second RLS bootstrap gap left by 006/007: `insert into companies ... returning id`
 -- requires a SELECT policy on the freshly inserted row, but `companies_member_read` only
@@ -640,10 +609,6 @@ $$;
 
 revoke all on function public.create_company_with_owner(text, text) from public;
 grant execute on function public.create_company_with_owner(text, text) to authenticated;
-
--- ===================================================================
--- FILE: migrations/009_find_company_account_rpc.sql
--- ===================================================================
 -- BlinkJob — 009: narrow, safe lookup for the team-invite feature.
 -- `users_select_self_or_staff` (006) correctly blocks a company owner from reading arbitrary
 -- other users' rows by email (privacy). Team invite still needs to check "does an account with
@@ -662,10 +627,6 @@ $$;
 
 revoke all on function public.find_company_account_by_email(text) from public;
 grant execute on function public.find_company_account_by_email(text) to authenticated;
-
--- ===================================================================
--- FILE: migrations/010_public_read_via_published_job.sql
--- ===================================================================
 -- BlinkJob — 010: the worker jobs feed needs to show the employer name and location address
 -- for published jobs, but `companies_member_read` / `company_locations_read` (006) only let
 -- company members see those rows. Add narrow public-read policies scoped to companies/locations
@@ -680,10 +641,6 @@ create policy company_locations_public_read_via_published_job on company_locatio
   using (
     exists (select 1 from jobs j where j.location_id = company_locations.id and j.status = 'published')
   );
-
--- ===================================================================
--- FILE: migrations/011_matching_rpcs.sql
--- ===================================================================
 -- BlinkJob — 011: geo hard-filter helpers for the matching engine (M4).
 -- Distance is computed in Postgres/PostGIS (accurate, indexed via the existing GiST indexes)
 -- and returned in km; the deterministic scoring itself lives in application code
@@ -760,10 +717,6 @@ revoke all on function public.candidate_workers_for_job(uuid) from public;
 revoke all on function public.candidate_jobs_for_worker(uuid) from public;
 grant execute on function public.candidate_workers_for_job(uuid) to authenticated;
 grant execute on function public.candidate_jobs_for_worker(uuid) to authenticated;
-
--- ===================================================================
--- FILE: migrations/012_company_read_candidate_skills_availability.sql
--- ===================================================================
 -- BlinkJob — 012: `worker_skills_owner` / `worker_availability_owner` (006) only let the worker
 -- themselves read their own skills/availability. The company-side candidates view (M4) needs to
 -- read exactly those fields for workers who are legitimate geo-eligible candidates for one of the
@@ -795,10 +748,6 @@ create policy worker_availability_company_candidate_read on worker_availability 
         and ST_Distance(wp.home_location, cl.location) / 1000.0 <= wp.operating_radius_km
     )
   );
-
--- ===================================================================
--- FILE: migrations/013_fix_candidate_read_policies_rls_recursion.sql
--- ===================================================================
 -- BlinkJob — 013: fixes migration 012, which did not work as intended.
 -- An RLS policy's USING clause is evaluated under the QUERYING user's own permissions on every
 -- table it touches — including tables referenced only inside a correlated subquery. 012's
@@ -835,10 +784,6 @@ create policy worker_skills_company_candidate_read on worker_skills for select
 drop policy if exists worker_availability_company_candidate_read on worker_availability;
 create policy worker_availability_company_candidate_read on worker_availability for select
   using (is_geo_candidate_for_company_job(worker_id));
-
--- ===================================================================
--- FILE: migrations/014_applications_assignments_rpcs.sql
--- ===================================================================
 -- BlinkJob — 014: M5 (candidature/inviti/selezione/conferma).
 -- Two gaps in 006's RLS model: (1) there was no INSERT policy letting a company create an
 -- `invite`-type application on a candidate's behalf — only the worker themselves could insert
@@ -920,10 +865,6 @@ $$;
 
 revoke all on function public.confirm_candidate(uuid) from public;
 grant execute on function public.confirm_candidate(uuid) to authenticated;
-
--- ===================================================================
--- FILE: migrations/015_company_read_applicant_name.sql
--- ===================================================================
 -- BlinkJob — 015: the company-side "Candidature e inviti" list needs the applicant's display
 -- name, but `users_select_self_or_staff` (006) only lets a user read their own row (or staff
 -- read any). Mirrors the existing `worker_profiles_company_read` pattern (006), just for `users`:
@@ -937,10 +878,6 @@ create policy users_company_applicant_read on users for select
       where a.worker_id = users.id and is_company_member(j.company_id)
     )
   );
-
--- ===================================================================
--- FILE: migrations/016_accept_invite_rpc.sql
--- ===================================================================
 -- BlinkJob — 016: fixes a real design gap found while testing M5's invite flow.
 -- `respondToInviteAction` (accept path) only flipped applications.status to 'accepted' — but
 -- 'accepted' is *not* one of the states `confirm_candidate` (014) accepts as input, so an
@@ -1012,10 +949,6 @@ $$;
 
 revoke all on function public.accept_invite(uuid) from public;
 grant execute on function public.accept_invite(uuid) to authenticated;
-
--- ===================================================================
--- FILE: migrations/017_execution_rpcs.sql
--- ===================================================================
 -- BlinkJob — 017: M6 (esecuzione — check-in/out, completamento, annullamento).
 -- assignments has no UPDATE policy for the worker at all (006 only lets the company update), and
 -- these transitions have business rules (valid-state checks) that belong in one place rather
@@ -1191,10 +1124,6 @@ grant execute on function public.check_in_assignment(uuid, check_event_method, t
 grant execute on function public.check_out_assignment(uuid, check_event_method, text) to authenticated;
 grant execute on function public.confirm_assignment_completion(uuid) to authenticated;
 grant execute on function public.cancel_assignment(uuid, text) to authenticated;
-
--- ===================================================================
--- FILE: migrations/018_payments_tracked_ledger.sql
--- ===================================================================
 -- BlinkJob — 018: M7 (pagamenti — ledger tracciato, nessun PSP reale).
 -- Per TECH_ARCHITECTURE.md sez. 2: TrackedLedgerProvider, nessun money-movement reale in questa
 -- fase. Un pagamento viene creato automaticamente quando un assignment passa a 'completed'
@@ -1328,10 +1257,6 @@ revoke all on function public.mark_payment_paid(uuid) from public;
 grant execute on function public.calculate_platform_fee_cents(int) to authenticated;
 grant execute on function public.confirm_payment(uuid) to authenticated;
 grant execute on function public.mark_payment_paid(uuid) to authenticated;
-
--- ===================================================================
--- FILE: migrations/019_reviews_and_reliability.sql
--- ===================================================================
 -- BlinkJob — 019: M8 (recensioni bilaterali e metriche di affidabilità).
 -- Real gap found by inspection this time (not by trial and error): `reviews_insert` (006) only
 -- checks `author_id = auth.uid()` — it never verifies the author actually participated in that
@@ -1385,10 +1310,6 @@ drop trigger if exists trg_recompute_worker_reliability on reviews;
 create trigger trg_recompute_worker_reliability
   after insert on reviews
   for each row execute function recompute_worker_reliability();
-
--- ===================================================================
--- FILE: migrations/020_admin_console_rpcs.sql
--- ===================================================================
 -- BlinkJob — 020: M9 (console amministrativa — utenti, aziende, dispute, analytics base).
 -- Nessuna policy permette oggi a staff/admin di scrivere su `users`/`companies` (solo di
 -- leggerli, via 006) — le azioni di verifica/sospensione passano quindi da RPC security definer
@@ -1492,10 +1413,820 @@ grant execute on function public.admin_set_user_status(uuid, user_status) to aut
 grant execute on function public.admin_set_company_status(uuid, company_status) to authenticated;
 grant execute on function public.open_dispute(uuid, text) to authenticated;
 grant execute on function public.resolve_dispute(uuid, text) to authenticated;
+-- BlinkJob — 021: M10 (hardening di sicurezza — revisione finale).
+-- `points_ledger` (005, predisposizione futura per BlinkPoints, non popolata/attiva nell'MVP —
+-- vedi TECH_ARCHITECTURE.md sez. 7) è la sola tabella applicativa rimasta senza RLS abilitata:
+-- 006 non la includeva nell'elenco. Anche se oggi nessun codice applicativo la scrive/legge,
+-- lasciarla senza RLS significherebbe che una chiave anon/authenticated potrebbe leggerla o
+-- scriverla direttamente via API REST non appena qualcuno la popolasse, bypassando qualunque
+-- controllo futuro. Chiusa preventivamente, in linea con "privacy by design" (CLAUDE.md).
 
--- ===================================================================
--- FILE: seed/001_dev_seed.sql
--- ===================================================================
+alter table points_ledger enable row level security;
+
+drop policy if exists points_ledger_owner_read on points_ledger;
+create policy points_ledger_owner_read on points_ledger for select
+  using (user_id = auth.uid() or is_admin_or_support());
+
+-- Nessuna policy INSERT/UPDATE/DELETE: finché BlinkPoints non è attivo, solo funzioni
+-- security definer (nessuna ancora esiste) potranno scrivere qui, mai il client direttamente.
+-- BlinkJob — 022: M12 (notifiche in-app — gap MVP must-have).
+-- La tabella `notifications` esiste dalla 005 con RLS `notifications_owner` (005/006), ma nessun
+-- codice applicativo la scrive: nessuna delle transizioni costruite in M2-M9 emette una notifica.
+-- `notifications_owner` (using/with check su user_id = auth.uid()) non permette comunque a un
+-- utente di notificare un ALTRO utente (es. l'azienda deve notificare il lavoratore quando
+-- conferma la candidatura) — quindi l'emissione non può essere un insert diretto dal client,
+-- deve avvenire dentro le funzioni security definer che già gestiscono ogni transizione
+-- (bypassano la RLS), o in trigger per gli insert non ancora incapsulati in una RPC
+-- (candidature, recensioni). Stesso pattern idempotente delle migration precedenti:
+-- create or replace function, drop/create trigger.
+
+-- Candidature/inviti: nessuna RPC li incapsula (insert diretto via applications_worker_insert /
+-- applications_company_invite_insert), quindi qui serve un trigger.
+create or replace function public.notify_on_application_insert()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_job jobs%rowtype;
+begin
+  select * into v_job from jobs where id = new.job_id;
+
+  if new.type = 'application' then
+    insert into notifications (user_id, event_type, payload)
+    select cm.user_id, 'application_received',
+      jsonb_build_object('job_id', v_job.id, 'job_title', v_job.title, 'application_id', new.id)
+    from company_members cm
+    where cm.company_id = v_job.company_id;
+  else
+    insert into notifications (user_id, event_type, payload)
+    values (
+      new.worker_id, 'invite_received',
+      jsonb_build_object('job_id', v_job.id, 'job_title', v_job.title, 'application_id', new.id)
+    );
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_notify_on_application_insert on applications;
+create trigger trg_notify_on_application_insert
+  after insert on applications
+  for each row execute function notify_on_application_insert();
+
+-- Recensioni: idem, insert diretto (reviews_insert, 019), non una RPC.
+create or replace function public.notify_on_review_insert()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  insert into notifications (user_id, event_type, payload)
+  values (
+    new.recipient_id, 'review_received',
+    jsonb_build_object('assignment_id', new.assignment_id, 'rating', new.rating_dimensions->>'overall')
+  );
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_notify_on_review_insert on reviews;
+create trigger trg_notify_on_review_insert
+  after insert on reviews
+  for each row execute function notify_on_review_insert();
+
+-- Da qui in poi: transizioni già incapsulate in RPC security definer (014/016/017/018/020),
+-- ridefinite per aggiungere l'emissione della notifica nello stesso passaggio atomico.
+
+create or replace function public.confirm_candidate(p_application_id uuid)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_job jobs%rowtype;
+  v_application applications%rowtype;
+  v_location company_locations%rowtype;
+  v_confirmed_count int;
+  v_assignment_id uuid;
+  v_snapshot jsonb;
+begin
+  select * into v_application from applications where id = p_application_id;
+  if not found then
+    raise exception 'Application not found';
+  end if;
+
+  select * into v_job from jobs where id = v_application.job_id;
+
+  if not is_company_member(v_job.company_id) then
+    raise exception 'Not authorized to confirm this application';
+  end if;
+
+  if v_application.status not in ('sent', 'viewed', 'shortlisted', 'info_requested') then
+    raise exception 'Application is not in a confirmable state (status: %)', v_application.status;
+  end if;
+
+  select count(*) into v_confirmed_count
+  from assignments
+  where job_id = v_job.id and status <> 'canceled';
+
+  if v_confirmed_count >= v_job.positions_count then
+    raise exception 'All positions for this job are already filled';
+  end if;
+
+  select * into v_location from company_locations where id = v_job.location_id;
+
+  v_snapshot := jsonb_build_object(
+    'job_title', v_job.title,
+    'pay_amount_cents', v_job.pay_amount_cents,
+    'pay_currency', v_job.pay_currency,
+    'starts_at', v_job.starts_at,
+    'ends_at', v_job.ends_at,
+    'location_label', v_location.label,
+    'location_address', v_location.address,
+    'job_version', v_job.version
+  );
+
+  update applications set status = 'accepted' where id = p_application_id;
+
+  insert into assignments (application_id, job_id, worker_id, status, confirmed_terms_snapshot)
+  values (p_application_id, v_job.id, v_application.worker_id, 'confirmed', v_snapshot)
+  returning id into v_assignment_id;
+
+  insert into notifications (user_id, event_type, payload)
+  values (
+    v_application.worker_id, 'application_accepted',
+    jsonb_build_object('job_title', v_job.title, 'assignment_id', v_assignment_id)
+  );
+
+  return v_assignment_id;
+end;
+$$;
+
+create or replace function public.accept_invite(p_application_id uuid)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_job jobs%rowtype;
+  v_application applications%rowtype;
+  v_location company_locations%rowtype;
+  v_confirmed_count int;
+  v_assignment_id uuid;
+  v_snapshot jsonb;
+begin
+  select * into v_application from applications where id = p_application_id;
+  if not found then
+    raise exception 'Application not found';
+  end if;
+
+  if v_application.worker_id <> auth.uid() then
+    raise exception 'Not authorized to accept this invite';
+  end if;
+
+  if v_application.type <> 'invite' or v_application.status <> 'sent' then
+    raise exception 'Invite is not in an acceptable state (status: %)', v_application.status;
+  end if;
+
+  select * into v_job from jobs where id = v_application.job_id;
+
+  select count(*) into v_confirmed_count
+  from assignments
+  where job_id = v_job.id and status <> 'canceled';
+
+  if v_confirmed_count >= v_job.positions_count then
+    raise exception 'All positions for this job are already filled';
+  end if;
+
+  select * into v_location from company_locations where id = v_job.location_id;
+
+  v_snapshot := jsonb_build_object(
+    'job_title', v_job.title,
+    'pay_amount_cents', v_job.pay_amount_cents,
+    'pay_currency', v_job.pay_currency,
+    'starts_at', v_job.starts_at,
+    'ends_at', v_job.ends_at,
+    'location_label', v_location.label,
+    'location_address', v_location.address,
+    'job_version', v_job.version
+  );
+
+  update applications set status = 'accepted' where id = p_application_id;
+
+  insert into assignments (application_id, job_id, worker_id, status, confirmed_terms_snapshot)
+  values (p_application_id, v_job.id, v_application.worker_id, 'confirmed', v_snapshot)
+  returning id into v_assignment_id;
+
+  insert into notifications (user_id, event_type, payload)
+  select cm.user_id, 'invite_accepted',
+    jsonb_build_object('job_title', v_job.title, 'assignment_id', v_assignment_id)
+  from company_members cm
+  where cm.company_id = v_job.company_id;
+
+  return v_assignment_id;
+end;
+$$;
+
+create or replace function public.check_in_assignment(
+  p_assignment_id uuid,
+  p_method check_event_method default 'manual',
+  p_note text default null
+) returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_assignment assignments%rowtype;
+  v_job jobs%rowtype;
+begin
+  select * into v_assignment from assignments where id = p_assignment_id;
+  if not found then
+    raise exception 'Assignment not found';
+  end if;
+
+  if v_assignment.worker_id <> auth.uid() then
+    raise exception 'Not authorized to check in on this assignment';
+  end if;
+
+  if v_assignment.status <> 'confirmed' then
+    raise exception 'Assignment is not in a checkable-in state (status: %)', v_assignment.status;
+  end if;
+
+  insert into check_events (assignment_id, type, method, note)
+  values (p_assignment_id, 'check_in', p_method, p_note);
+
+  update assignments set status = 'in_progress' where id = p_assignment_id;
+
+  select * into v_job from jobs where id = v_assignment.job_id;
+  insert into notifications (user_id, event_type, payload)
+  select cm.user_id, 'assignment_checked_in',
+    jsonb_build_object('job_title', v_job.title, 'assignment_id', p_assignment_id)
+  from company_members cm
+  where cm.company_id = v_job.company_id;
+end;
+$$;
+
+create or replace function public.confirm_assignment_completion(p_assignment_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_assignment assignments%rowtype;
+  v_job jobs%rowtype;
+  v_gross int;
+  v_fee int;
+  v_confirmed_by_worker boolean;
+begin
+  select * into v_assignment from assignments where id = p_assignment_id;
+  if not found then
+    raise exception 'Assignment not found';
+  end if;
+
+  select * into v_job from jobs where id = v_assignment.job_id;
+
+  if v_assignment.worker_id <> auth.uid() and not is_company_member(v_job.company_id) then
+    raise exception 'Not authorized to confirm completion of this assignment';
+  end if;
+
+  if v_assignment.status <> 'in_progress' then
+    raise exception 'Assignment is not in progress (status: %)', v_assignment.status;
+  end if;
+
+  if not exists (
+    select 1 from check_events where assignment_id = p_assignment_id and type = 'check_out'
+  ) then
+    raise exception 'Cannot confirm completion before check-out';
+  end if;
+
+  v_confirmed_by_worker := v_assignment.worker_id = auth.uid();
+
+  update assignments set status = 'completed' where id = p_assignment_id;
+
+  v_gross := (v_assignment.confirmed_terms_snapshot->>'pay_amount_cents')::int;
+  v_fee := calculate_platform_fee_cents(v_gross);
+
+  insert into payments (
+    assignment_id, gross_amount_cents, platform_fee_cents, fee_version, net_amount_cents,
+    currency, status, provider
+  )
+  values (
+    p_assignment_id, v_gross, v_fee, 'v1', v_gross - v_fee,
+    coalesce(v_assignment.confirmed_terms_snapshot->>'pay_currency', 'EUR'), 'pending', 'tracked_ledger'
+  );
+
+  -- Notifica la controparte (chi ha confermato lo sa già).
+  if v_confirmed_by_worker then
+    insert into notifications (user_id, event_type, payload)
+    select cm.user_id, 'assignment_completed',
+      jsonb_build_object('job_title', v_job.title, 'assignment_id', p_assignment_id)
+    from company_members cm
+    where cm.company_id = v_job.company_id;
+  else
+    insert into notifications (user_id, event_type, payload)
+    values (
+      v_assignment.worker_id, 'assignment_completed',
+      jsonb_build_object('job_title', v_job.title, 'assignment_id', p_assignment_id)
+    );
+  end if;
+end;
+$$;
+
+create or replace function public.mark_payment_paid(p_payment_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_payment payments%rowtype;
+  v_job jobs%rowtype;
+  v_worker_id uuid;
+begin
+  select * into v_payment from payments where id = p_payment_id;
+  if not found then
+    raise exception 'Payment not found';
+  end if;
+
+  select j.* into v_job
+  from assignments a join jobs j on j.id = a.job_id where a.id = v_payment.assignment_id;
+  select worker_id into v_worker_id from assignments where id = v_payment.assignment_id;
+
+  if not is_company_member(v_job.company_id) then
+    raise exception 'Not authorized to mark this payment as paid';
+  end if;
+
+  if v_payment.status <> 'confirmed' then
+    raise exception 'Payment is not confirmed (status: %)', v_payment.status;
+  end if;
+
+  update payments set status = 'paid' where id = p_payment_id;
+
+  insert into notifications (user_id, event_type, payload)
+  values (
+    v_worker_id, 'payment_paid',
+    jsonb_build_object('job_title', v_job.title, 'net_amount_cents', v_payment.net_amount_cents)
+  );
+end;
+$$;
+
+create or replace function public.open_dispute(p_assignment_id uuid, p_type text)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_dispute_id uuid;
+  v_assignment assignments%rowtype;
+  v_job jobs%rowtype;
+  v_opened_by_worker boolean;
+begin
+  select * into v_assignment from assignments where id = p_assignment_id;
+  select * into v_job from jobs where id = v_assignment.job_id;
+
+  if not (v_assignment.worker_id = auth.uid() or is_company_member(v_job.company_id)) then
+    raise exception 'Not authorized to open a dispute for this assignment';
+  end if;
+
+  v_opened_by_worker := v_assignment.worker_id = auth.uid();
+
+  insert into disputes (assignment_id, opened_by, type, status)
+  values (p_assignment_id, auth.uid(), p_type, 'open')
+  returning id into v_dispute_id;
+
+  if v_opened_by_worker then
+    insert into notifications (user_id, event_type, payload)
+    select cm.user_id, 'dispute_opened',
+      jsonb_build_object('job_title', v_job.title, 'dispute_id', v_dispute_id)
+    from company_members cm
+    where cm.company_id = v_job.company_id;
+  else
+    insert into notifications (user_id, event_type, payload)
+    values (
+      v_assignment.worker_id, 'dispute_opened',
+      jsonb_build_object('job_title', v_job.title, 'dispute_id', v_dispute_id)
+    );
+  end if;
+
+  return v_dispute_id;
+end;
+$$;
+
+create or replace function public.resolve_dispute(p_dispute_id uuid, p_resolution text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_dispute disputes%rowtype;
+  v_assignment assignments%rowtype;
+  v_job jobs%rowtype;
+begin
+  if not is_admin_or_support() then
+    raise exception 'Not authorized';
+  end if;
+
+  select * into v_dispute from disputes where id = p_dispute_id;
+  select * into v_assignment from assignments where id = v_dispute.assignment_id;
+  select * into v_job from jobs where id = v_assignment.job_id;
+
+  update disputes set status = 'resolved', resolution = p_resolution where id = p_dispute_id;
+
+  insert into audit_events (actor_id, action, resource_type, resource_id, metadata)
+  values (auth.uid(), 'admin_resolve_dispute', 'dispute', p_dispute_id, jsonb_build_object('resolution', p_resolution));
+
+  insert into notifications (user_id, event_type, payload)
+  values (
+    v_assignment.worker_id, 'dispute_resolved',
+    jsonb_build_object('job_title', v_job.title, 'dispute_id', p_dispute_id, 'resolution', p_resolution)
+  );
+  insert into notifications (user_id, event_type, payload)
+  select cm.user_id, 'dispute_resolved',
+    jsonb_build_object('job_title', v_job.title, 'dispute_id', p_dispute_id, 'resolution', p_resolution)
+  from company_members cm
+  where cm.company_id = v_job.company_id;
+end;
+$$;
+
+create or replace function public.admin_set_user_status(p_user_id uuid, p_status user_status)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if not is_admin_or_support() then
+    raise exception 'Not authorized';
+  end if;
+
+  update users set status = p_status where id = p_user_id;
+
+  insert into audit_events (actor_id, action, resource_type, resource_id, metadata)
+  values (auth.uid(), 'admin_set_user_status', 'user', p_user_id, jsonb_build_object('status', p_status));
+
+  insert into notifications (user_id, event_type, payload)
+  values (p_user_id, 'account_status_changed', jsonb_build_object('status', p_status));
+end;
+$$;
+
+create or replace function public.admin_set_company_status(p_company_id uuid, p_status company_status)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if not is_admin_or_support() then
+    raise exception 'Not authorized';
+  end if;
+
+  update companies set status = p_status where id = p_company_id;
+
+  insert into audit_events (actor_id, action, resource_type, resource_id, metadata)
+  values (auth.uid(), 'admin_set_company_status', 'company', p_company_id, jsonb_build_object('status', p_status));
+
+  insert into notifications (user_id, event_type, payload)
+  select cm.user_id, 'company_status_changed', jsonb_build_object('status', p_status)
+  from company_members cm
+  where cm.company_id = p_company_id;
+end;
+$$;
+
+-- "Segna come letta" non richiede una RPC: la policy notifications_owner (006) già permette
+-- al destinatario di aggiornare le proprie righe (using/with check su user_id = auth.uid()) —
+-- un update diretto dal client via supabase-js basta, stesso ragionamento di 014 per l'insert
+-- di invito diretto.
+-- BlinkJob — 023: M13 (BlinkNow — modalità urgente, PRD sez. 9.1 / EPIC 11).
+-- Ambito volutamente limitato a ciò che TECH_ARCHITECTURE.md (sez. 7) dichiara come già
+-- predisposto: campo `urgency_tier` su jobs + feature flag `blinknow_enabled` — "pricing e SLA
+-- aggiuntivi non implementati ora". Il PRD descrive BlinkNow come feature post-MVP con
+-- dipendenze operative reali (SLA per città/categoria, on-call, distribuzione a cerchi
+-- concentrici, fee premium) che il founder non ha ancora deciso (roadmap sez. 24, OQ-07):
+-- costruire quella parte ora significherebbe inventare numeri di business. Qui si implementa
+-- solo il meccanismo (flag → urgenza → boost di matching → notifica opt-in), non il pricing.
+--
+-- Niente gating per città: né `jobs` né `company_locations` hanno un campo città strutturato
+-- (solo geography point + label libera) — `feature_flags.enabled_cities` resta quindi non
+-- utilizzato in questa fase, gating solo su categoria. Documentato, non un bug.
+
+alter table worker_profiles add column if not exists blinknow_opt_in boolean not null default false;
+
+create or replace function public.is_blinknow_enabled_for_job(p_category text)
+returns boolean
+language sql
+stable
+as $$
+  select coalesce(
+    (select enabled_globally or p_category = any(enabled_categories)
+     from feature_flags where key = 'blinknow_enabled'),
+    false
+  );
+$$;
+
+-- Solo su bozze: evitare di dover gestire il caso "urgenza attivata dopo la pubblicazione"
+-- (ri-notifica, cambio SLA a candidature già in corso) è la semplificazione scelta qui.
+create or replace function public.set_job_blinknow(p_job_id uuid, p_enabled boolean)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_job jobs%rowtype;
+  v_company companies%rowtype;
+begin
+  select * into v_job from jobs where id = p_job_id;
+  if not found then
+    raise exception 'Job not found';
+  end if;
+
+  if not is_company_member(v_job.company_id) then
+    raise exception 'Not authorized to modify this job';
+  end if;
+
+  if v_job.status <> 'draft' then
+    raise exception 'BlinkNow can only be toggled while the job is a draft (status: %)', v_job.status;
+  end if;
+
+  if p_enabled then
+    select * into v_company from companies where id = v_job.company_id;
+    if v_company.status <> 'active' then
+      raise exception 'Only verified (active) companies can activate BlinkNow';
+    end if;
+    if not is_blinknow_enabled_for_job(v_job.category) then
+      raise exception 'BlinkNow is not enabled for this job category yet';
+    end if;
+  end if;
+
+  update jobs
+  set urgency_tier = (case when p_enabled then 'blinknow' else 'standard' end)::urgency_tier
+  where id = p_job_id;
+end;
+$$;
+
+-- applications/reviews (M12) usano trigger per lo stesso motivo: la pubblicazione di un job è
+-- un update diretto dal client (jobs_company_manage, 006), non una RPC — quindi la notifica non
+-- può vivere in una funzione che quello statement non attraversa mai.
+create or replace function public.notify_on_blinknow_job_published()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_location company_locations%rowtype;
+begin
+  if new.status = 'published' and new.urgency_tier = 'blinknow'
+     and (old.status is distinct from new.status or old.urgency_tier is distinct from new.urgency_tier) then
+
+    select * into v_location from company_locations where id = new.location_id;
+
+    insert into notifications (user_id, event_type, payload)
+    select wp.user_id, 'blinknow_job_available',
+      jsonb_build_object('job_id', new.id, 'job_title', new.title)
+    from worker_profiles wp
+    join users u on u.id = wp.user_id
+    where wp.blinknow_opt_in = true
+      and wp.home_location is not null
+      and u.status not in ('suspended', 'blocked')
+      and ST_Distance(wp.home_location, v_location.location) / 1000.0 <= wp.operating_radius_km;
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_notify_on_blinknow_job_published on jobs;
+create trigger trg_notify_on_blinknow_job_published
+  after update on jobs
+  for each row execute function notify_on_blinknow_job_published();
+
+create or replace function public.admin_set_feature_flag(p_key text, p_enabled_globally boolean)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if not is_admin_or_support() then
+    raise exception 'Not authorized';
+  end if;
+
+  update feature_flags set enabled_globally = p_enabled_globally where key = p_key;
+  if not found then
+    raise exception 'Unknown feature flag: %', p_key;
+  end if;
+
+  insert into audit_events (actor_id, action, resource_type, resource_id, metadata)
+  values (auth.uid(), 'admin_set_feature_flag', 'feature_flag', null,
+    jsonb_build_object('key', p_key, 'enabled_globally', p_enabled_globally));
+end;
+$$;
+
+revoke all on function public.set_job_blinknow(uuid, boolean) from public;
+revoke all on function public.admin_set_feature_flag(text, boolean) from public;
+grant execute on function public.set_job_blinknow(uuid, boolean) to authenticated;
+grant execute on function public.admin_set_feature_flag(text, boolean) to authenticated;
+
+-- Nota: `feature_flags` ha già RLS + policy di lettura pubblica (`feature_flags_read`) e scrittura
+-- staff (`feature_flags_staff_write`) da 006 — quest'ultima permetterebbe anche un update diretto
+-- dal client admin, ma si passa comunque per `admin_set_feature_flag` per ottenere l'audit log,
+-- stesso pattern delle altre azioni admin (020).
+-- BlinkJob — 024: M14 (BlinkPoints — punti/badge interni, PRD sez. 9.3, requisiti PTS-001..005).
+-- Il PRD è esplicito: "Nel pilot può essere simulato internamente senza ricompense monetarie" —
+-- esattamente il ruolo già previsto per `points_ledger` (005/006/010: tabella creata ma mai
+-- scritta, RLS abilitata senza alcuna policy INSERT/UPDATE/DELETE per il client). Qui si
+-- implementa solo quella simulazione interna: nessun redeem, nessun marketplace ricompense
+-- (PTS-005, esplicitamente rimandato dal PRD stesso "solo dopo analisi fiscale e antifrode").
+--
+-- Semplificazioni MVP documentate (scelte deliberate, non dimenticanze):
+-- 1. PTS-002 "livelli e badge configurabili, regole versionate": i valori punti sono costanti
+--    hardcoded qui (versione "v1" implicita nel commento), non una tabella di configurazione
+--    editabile da admin — stesso pattern già usato per `calculate_platform_fee_cents` (018).
+--    Una UI di configurazione è oggettivamente post-pilot ("può essere simulato").
+-- 2. "Conferma disponibilità aggiornata → punti periodici" (riga 2 della tabella PRD) NON è
+--    implementata: nell'MVP attuale non esiste alcun flusso per modificare la disponibilità
+--    dopo l'onboarding iniziale (gap indipendente da BlinkPoints, fuori scope qui).
+-- 3. PTS-004 "revoca punti in caso di abuso, con motivo e contestazione" è implementata come
+--    azione admin manuale (`admin_adjust_points`) invece di una regola automatica legata alle
+--    dispute: `resolve_dispute` accetta oggi solo una nota testuale libera, non un esito
+--    strutturato (vinta/persa dal lavoratore) da cui derivare in modo affidabile una revoca
+--    automatica — un umano che decide è più sicuro di un'euristica su testo libero.
+-- 4. PTS-003 "nessun pay-to-rank" è soddisfatto per costruzione: `points_ledger` non è mai letto
+--    da `reliability_score` (che resta derivato solo dalle recensioni, 019) e non esiste alcun
+--    flusso di acquisto in questo MVP.
+-- 5. PTS-001 "ledger immutabile": nessuna funzione qui esegue mai update/delete su
+--    `points_ledger`, solo insert — una revoca è una nuova riga con importo negativo e motivo,
+--    mai una modifica alla storia (coerente con "motivo e possibilità di contestazione").
+
+create or replace function public.award_points(
+  p_user_id uuid,
+  p_points int,
+  p_reason text,
+  p_reference_type text default null,
+  p_reference_id uuid default null
+) returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if not coalesce((select enabled_globally from feature_flags where key = 'blinkpoints_enabled'), false) then
+    return;
+  end if;
+
+  insert into points_ledger (user_id, points, reason, reference_type, reference_id)
+  values (p_user_id, p_points, p_reason, p_reference_type, p_reference_id);
+end;
+$$;
+
+-- Badge profilo completo: una tantum, sia al primo submit (insert, profilo già al 100%) sia a un
+-- successivo aggiornamento che lo porta al 100% (update) — mai due volte per lo stesso worker.
+create or replace function public.award_points_on_profile_completion()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.completeness_score = 100 and (tg_op = 'INSERT' or old.completeness_score < 100) then
+    perform award_points(new.user_id, 50, 'profile_completed_badge', 'worker_profiles', new.user_id);
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_award_points_on_profile_completion on worker_profiles;
+create trigger trg_award_points_on_profile_completion
+  after insert or update on worker_profiles
+  for each row execute function award_points_on_profile_completion();
+
+-- Recensione utile: punti fissi a chi scrive, indipendenti dal voto assegnato (PRD: "niente
+-- incentivo sul voto positivo" — l'incentivo è contribuire, non votare bene).
+create or replace function public.award_points_on_review_insert()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  perform award_points(new.author_id, 5, 'review_contributed', 'review', new.id);
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_award_points_on_review_insert on reviews;
+create trigger trg_award_points_on_review_insert
+  after insert on reviews
+  for each row execute function award_points_on_review_insert();
+
+-- Punti affidabilità: ridefinisce 018/017 per aggiungere l'assegnazione nello stesso passaggio
+-- atomico del completamento (nessun'altra logica cambiata).
+create or replace function public.confirm_assignment_completion(p_assignment_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_assignment assignments%rowtype;
+  v_job jobs%rowtype;
+  v_gross int;
+  v_fee int;
+  v_confirmed_by_worker boolean;
+begin
+  select * into v_assignment from assignments where id = p_assignment_id;
+  if not found then
+    raise exception 'Assignment not found';
+  end if;
+
+  select * into v_job from jobs where id = v_assignment.job_id;
+
+  if v_assignment.worker_id <> auth.uid() and not is_company_member(v_job.company_id) then
+    raise exception 'Not authorized to confirm completion of this assignment';
+  end if;
+
+  if v_assignment.status <> 'in_progress' then
+    raise exception 'Assignment is not in progress (status: %)', v_assignment.status;
+  end if;
+
+  if not exists (
+    select 1 from check_events where assignment_id = p_assignment_id and type = 'check_out'
+  ) then
+    raise exception 'Cannot confirm completion before check-out';
+  end if;
+
+  v_confirmed_by_worker := v_assignment.worker_id = auth.uid();
+
+  update assignments set status = 'completed' where id = p_assignment_id;
+
+  v_gross := (v_assignment.confirmed_terms_snapshot->>'pay_amount_cents')::int;
+  v_fee := calculate_platform_fee_cents(v_gross);
+
+  insert into payments (
+    assignment_id, gross_amount_cents, platform_fee_cents, fee_version, net_amount_cents,
+    currency, status, provider
+  )
+  values (
+    p_assignment_id, v_gross, v_fee, 'v1', v_gross - v_fee,
+    coalesce(v_assignment.confirmed_terms_snapshot->>'pay_currency', 'EUR'), 'pending', 'tracked_ledger'
+  );
+
+  perform award_points(v_assignment.worker_id, 20, 'assignment_completed_no_issues', 'assignment', p_assignment_id);
+
+  if v_confirmed_by_worker then
+    insert into notifications (user_id, event_type, payload)
+    select cm.user_id, 'assignment_completed',
+      jsonb_build_object('job_title', v_job.title, 'assignment_id', p_assignment_id)
+    from company_members cm
+    where cm.company_id = v_job.company_id;
+  else
+    insert into notifications (user_id, event_type, payload)
+    values (
+      v_assignment.worker_id, 'assignment_completed',
+      jsonb_build_object('job_title', v_job.title, 'assignment_id', p_assignment_id)
+    );
+  end if;
+end;
+$$;
+
+-- PTS-004: rettifica/revoca manuale, con motivo obbligatorio — mai una update/delete sulla riga
+-- originale, sempre una nuova riga (positiva o negativa) che la storia lascia intatta.
+create or replace function public.admin_adjust_points(p_user_id uuid, p_points int, p_reason text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if not is_admin_or_support() then
+    raise exception 'Not authorized';
+  end if;
+  if p_reason is null or length(trim(p_reason)) = 0 then
+    raise exception 'A reason is required for a manual points adjustment';
+  end if;
+
+  insert into points_ledger (user_id, points, reason, reference_type)
+  values (p_user_id, p_points, 'admin_adjustment: ' || trim(p_reason), 'admin_adjustment');
+
+  insert into audit_events (actor_id, action, resource_type, resource_id, metadata)
+  values (auth.uid(), 'admin_adjust_points', 'user', p_user_id,
+    jsonb_build_object('points', p_points, 'reason', p_reason));
+end;
+$$;
+
+revoke all on function public.admin_adjust_points(uuid, int, text) from public;
+grant execute on function public.admin_adjust_points(uuid, int, text) to authenticated;
 -- BlinkJob — Dev seed data (non-sensitive, fictional). Do NOT use in production.
 -- Assumes corresponding auth.users rows already exist (create via Supabase Auth first,
 -- then insert matching rows here with the same ids).

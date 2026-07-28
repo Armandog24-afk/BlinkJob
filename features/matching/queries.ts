@@ -24,7 +24,7 @@ export async function getCandidatesForJob(jobId: string): Promise<CandidateMatch
 
   const [{ data: job }, { data: candidates, error: candidatesError }, { data: requirements }] =
     await Promise.all([
-      supabase.from("jobs").select("starts_at, ends_at").eq("id", jobId).single(),
+      supabase.from("jobs").select("starts_at, ends_at, urgency_tier").eq("id", jobId).single(),
       supabase.rpc("candidate_workers_for_job", { p_job_id: jobId }),
       supabase.from("job_requirements").select("skill_id, mandatory").eq("job_id", jobId),
     ]);
@@ -52,6 +52,7 @@ export async function getCandidatesForJob(jobId: string): Promise<CandidateMatch
     endsAt: job.ends_at,
     mandatorySkillIds: (requirements ?? []).filter((r) => r.mandatory).map((r) => r.skill_id),
     preferredSkillIds: (requirements ?? []).filter((r) => !r.mandatory).map((r) => r.skill_id),
+    urgencyTier: job.urgency_tier,
   };
 
   const results: CandidateMatch[] = [];
@@ -92,6 +93,7 @@ export interface MatchedJob extends MatchResult {
   payCurrency: string;
   positionsCount: number;
   startsAt: string;
+  urgencyTier: "standard" | "blinknow";
 }
 
 /** Ranked, explainable feed of published jobs for a worker (worker-side view). */
@@ -118,7 +120,7 @@ export async function getMatchedJobsForWorker(workerId: string): Promise<Matched
       supabase
         .from("jobs")
         .select(
-          "id, title, starts_at, ends_at, pay_amount_cents, pay_currency, positions_count, companies(legal_name), company_locations(label, address)"
+          "id, title, starts_at, ends_at, pay_amount_cents, pay_currency, positions_count, urgency_tier, companies(legal_name), company_locations(label, address)"
         )
         .in("id", jobIds),
       supabase.from("job_requirements").select("job_id, skill_id, mandatory").in("job_id", jobIds),
@@ -150,6 +152,7 @@ export async function getMatchedJobsForWorker(workerId: string): Promise<Matched
         endsAt: job.ends_at,
         mandatorySkillIds: reqs.filter((r) => r.mandatory).map((r) => r.skill_id),
         preferredSkillIds: reqs.filter((r) => !r.mandatory).map((r) => r.skill_id),
+        urgencyTier: job.urgency_tier,
       },
       {
         distanceKm: distanceByJob.get(job.id) ?? Infinity,
@@ -176,6 +179,7 @@ export async function getMatchedJobsForWorker(workerId: string): Promise<Matched
         payCurrency: job.pay_currency,
         positionsCount: job.positions_count,
         startsAt: job.starts_at,
+        urgencyTier: job.urgency_tier,
         ...match,
       });
     }

@@ -7,6 +7,7 @@ export interface JobForMatching {
   endsAt: string;
   mandatorySkillIds: string[];
   preferredSkillIds: string[];
+  urgencyTier?: "standard" | "blinknow";
 }
 
 export interface AvailabilitySlot {
@@ -142,13 +143,20 @@ export function computeMatch(job: JobForMatching, worker: WorkerForMatching): Ma
   // to be wired up when that data model lands (post-MVP).
   const preferenceScore = 1;
 
-  const score =
+  const baseScore =
     100 *
     (WEIGHTS.availability * availabilityScore +
       WEIGHTS.distance * distanceScore +
       WEIGHTS.skillFit * skillFitScore +
       WEIGHTS.reliability * reliabilityScore +
       WEIGHTS.preference * preferenceScore);
+
+  // PRD sez. 11.4: BlinkNow ottiene un "boost temporaneo... limitato e registrato" in classifica,
+  // non un filtro/priorità assoluta. Bonus fisso e ridotto, sempre visibile in `reasons` (il
+  // "registrato" richiesto dal PRD è questa trasparenza, non un log separato).
+  const BLINKNOW_BOOST = 5;
+  const score =
+    job.urgencyTier === "blinknow" ? Math.min(100, baseScore + BLINKNOW_BOOST) : baseScore;
 
   const totalMatchedSkills = job.mandatorySkillIds.length + matchedPreferred.length;
   const totalRequiredSkills = job.mandatorySkillIds.length + job.preferredSkillIds.length;
@@ -169,6 +177,10 @@ export function computeMatch(job: JobForMatching, worker: WorkerForMatching): Ma
       ? `rating ${worker.reliabilityScore.toFixed(1)}/5`
       : "nessuna recensione ancora"
   );
+
+  if (job.urgencyTier === "blinknow") {
+    reasons.push(`incarico urgente BlinkNow: priorità temporanea (+${BLINKNOW_BOOST} punti)`);
+  }
 
   return {
     score: Math.round(score * 10) / 10,

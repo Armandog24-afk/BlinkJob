@@ -111,3 +111,28 @@ export async function completeWorkerOnboardingAction(
 
   redirect("/worker/dashboard");
 }
+
+export async function updateBlinknowOptInAction(
+  _prevState: ActionState,
+  formData: FormData
+): Promise<ActionState> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+
+  const optIn = formData.get("blinknowOptIn") === "on";
+
+  const { error } = await supabase
+    .from("worker_profiles")
+    .update({ blinknow_opt_in: optIn })
+    .eq("user_id", user.id);
+
+  if (error) {
+    console.error("[updateBlinknowOptInAction] error:", error);
+    return { error: "Impossibile salvare la preferenza. Riprova." };
+  }
+
+  return {};
+}

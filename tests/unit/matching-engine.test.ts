@@ -143,3 +143,32 @@ describe("computeMatch — scoring and explanation", () => {
     expect(twoMatches.score).toBeGreaterThan(oneMatch.score);
   });
 });
+
+describe("computeMatch — BlinkNow (urgency boost, PRD sez. 11.4: 'limitato e registrato')", () => {
+  const BLINKNOW_JOB: JobForMatching = { ...SATURDAY_JOB, urgencyTier: "blinknow" };
+
+  it("gives a BlinkNow job a small, fixed boost over the identical standard job", () => {
+    const standard = computeMatch(SATURDAY_JOB, baseWorker())!;
+    const blinknow = computeMatch(BLINKNOW_JOB, baseWorker())!;
+    expect(blinknow.score).toBeGreaterThan(standard.score);
+    expect(blinknow.score - standard.score).toBeCloseTo(5, 1);
+  });
+
+  it("surfaces the boost transparently in reasons, per PRD 'registrato'", () => {
+    const blinknow = computeMatch(BLINKNOW_JOB, baseWorker())!;
+    expect(blinknow.reasons.some((r) => r.includes("BlinkNow"))).toBe(true);
+  });
+
+  it("caps the boosted score at 100", () => {
+    const nearPerfect = computeMatch(
+      BLINKNOW_JOB,
+      baseWorker({ distanceKm: 0, reliabilityScore: 5, skillIds: [SKILL_A, SKILL_B, SKILL_C] })
+    )!;
+    expect(nearPerfect.score).toBeLessThanOrEqual(100);
+  });
+
+  it("still applies every hard filter to a BlinkNow job (boost is not an eligibility bypass)", () => {
+    expect(computeMatch(BLINKNOW_JOB, baseWorker({ status: "suspended" }))).toBeNull();
+    expect(computeMatch(BLINKNOW_JOB, baseWorker({ skillIds: [SKILL_B] }))).toBeNull();
+  });
+});

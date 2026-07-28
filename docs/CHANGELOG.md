@@ -162,4 +162,79 @@ Riepilogo delle modifiche per milestone, secondo la regola di FASE 10 ("dopo ogn
 - Migration 021 applicata dall'utente via SQL Editor; verificata empiricamente con uno script Node throwaway autenticato come utente di test: `SELECT` su `points_ledger` riesce e restituisce solo righe proprie (vuoto, nessun errore), `INSERT` viene negato con errore Postgres `42501` ("new row violates row-level security policy") — la RLS è attiva e non esiste alcuna policy di scrittura diretta dal client, come da disegno. Script di verifica rimosso subito dopo l'uso.
 
 **Nota:** con questa milestone il prodotto copre l'intero perimetro richiesto da CLAUDE.md (area lavoratore, area azienda, matching, gestione incarichi, recensioni, amministrazione) come MVP funzionante end-to-end, verificato sia da test automatici che da test manuali nel browser contro dati reali.
-- `npx tsc --noEmit`, `npm run lint`, `npm test` (26 test) verdi.
+
+## Fase 2 — Oltre l'MVP iniziale
+
+Codice pubblicato su GitHub (`github.com/Armandog24-afk/BlinkJob`, commit iniziale con storia unica per M1-M10). Prima di passare alle funzionalità future previste dal PRD (BlinkNow, Blink Assistant, BlinkPoints), analisi di MVP_SCOPE.md ha rilevato due gap reali nel perimetro must-have mai colmati: **recupero password** e **notifiche in-app** (tabella esistente da M1, mai scritta/letta da alcun codice). Priorità decisa: chiudere prima questi due gap, poi le tre feature "should/could have" già predisposte a livello di schema, partendo dalla più economica (nessuna dipendenza esterna) verso quella più costosa (Blink Assistant, richiede un provider AI esterno — verrà chiesta conferma all'utente prima di implementarla).
+
+## M11 — Recupero password (completata)
+
+**Cosa è stato costruito:**
+- `/forgot-password`: form email → `resetPasswordForEmail`; messaggio di successo identico indipendentemente dall'esistenza dell'account (nessun oracolo di enumerazione).
+- `/reset-password`: pagina completamente client-side (`ResetPasswordGate`) che stabilisce la sessione di recovery **prima** di mostrare il form, gestendo sia il flusso a fragment URL (`#access_token=...`) sia quello PKCE (`?code=...`).
+- Link "Password dimenticata?" nel form di login.
+
+**Decisione tecnica (non ovvia, documentata):** il link di recovery generato da Supabase per questo progetto redirige con i token nel **fragment dell'URL** (`#access_token=...`), non con un `?code=` PKCE — un fragment non viene mai inviato a nessun server, quindi un Route Handler come `/auth/callback` non può in linea di principio vederlo. Per questo `/reset-password` è stata scritta come componente client che legge `window.location.hash` direttamente (o, in subordine, un eventuale `?code=`) e stabilisce la sessione via `supabase.auth.setSession()`/`exchangeCodeForSession()` lato browser, prima di mostrare il form di nuova password.
+
+**Verifica eseguita:**
+- Simulato il click sul link di recovery senza un vero inbox: generato un link reale via `supabase.auth.admin.generateLink` (script throwaway), risolto il redirect lato server (`curl -D -`) per ottenere l'URL finale con i token, poi navigato il browser direttamente su quell'URL same-origin — mai toccato il dominio Supabase dal browser sandbox.
+- Confermato che il form imposta la nuova password: dopo l'invio, redirect automatico a `/worker/dashboard` (l'utente resta autenticato); login con la password nuova riuscito, login con la vecchia password rifiutato (`Invalid login credentials`). Password di test poi ripristinata al valore originale documentato.
+- `npx tsc --noEmit`, `npm run lint`, `npm test` (31 test) verdi. Script di verifica temporanei rimossi.
+
+**Nota:** questo stesso gap del fragment-URL riguarda potenzialmente anche il link di conferma email in fase di registrazione (`/auth/callback`), oggi non osservabile perché la conferma email è disattivata in sviluppo — da riverificare con lo stesso metodo prima di riattivare la conferma email in produzione.
+
+## M12 — Notifiche in-app (completata)
+
+**Cosa è stato costruito:**
+- Migration 022: la tabella `notifications` esisteva da M1 (005/006) ma nessun codice applicativo la scriveva. Poiché la sua RLS (`notifications_owner`) permette solo a un utente di scrivere le **proprie** righe, l'emissione verso un'altra parte (es. l'azienda che deve notificare il lavoratore) non può essere un insert diretto dal client: va incapsulata nelle funzioni `security definer` che già gestiscono ogni transizione (`confirm_candidate`, `accept_invite`, `check_in_assignment`, `confirm_assignment_completion`, `mark_payment_paid`, `open_dispute`, `resolve_dispute`, `admin_set_user_status`, `admin_set_company_status`, tutte ridefinite per emettere la notifica nello stesso passaggio atomico) o in trigger `AFTER INSERT` per gli insert non ancora incapsulati in una RPC (candidature/inviti, recensioni).
+- `features/notifications/` (`queries.ts`, `actions.ts`, `components/notifications-bell{,-client}.tsx`): campanella nell'header di `DashboardShell`, badge con conteggio non lette, dropdown con le ultime 10 notifiche in italiano, "segna come letta" (singola o tutte) via update diretto (già coperto dalla policy esistente, nessuna nuova RPC necessaria).
+
+**Bug corretto durante la scrittura (non da trial-and-error, da un errore Postgres alla prima esecuzione):** `mark_payment_paid` conteneva `select j.*, a.worker_id into v_job, v_worker_id` — Postgres non ammette una variabile `%rowtype` insieme ad altri target in una singola clausola `INTO` multipla (`42601: record variable cannot be part of multiple-item INTO list`). Poiché l'intera migration viene incollata come un solo script nell'SQL Editor di Supabase, l'errore ha annullato anche le funzioni già create con successo nello stesso paste (stessa dinamica già osservata a M5) — corretto separando in due `select ... into` distinti e rifatto il paste completo.
+
+**Verifica eseguita:**
+- `npx tsc --noEmit` e `npm run lint` puliti sul nuovo codice.
+- Migration 022 applicata dall'utente; verificata con uno script Node throwaway: le RPC che erano rotte (`mark_payment_paid`, ecc.) ora restituiscono errori di business logic (`P0001: Payment not found`) invece dell'errore di sintassi — script rimosso subito dopo l'uso.
+- Verificato l'intero flusso nel browser: promosso "Verdi Catering Srl" da `pending_verification` ad `active` dalla console admin → login come proprietaria dell'azienda → campanella mostra badge "1" e la notifica "Lo stato della tua azienda è ora: active" → click su "Letta" → `read_at` impostato (confermato via query diretta). Stato dell'azienda di test ripristinato a `pending_verification` al termine della verifica per non alterare i dati demo.
+
+## M13 — BlinkNow (completata, con ambito volutamente ridotto)
+
+**Analisi preliminare (PRD, sez. 9.1 / EPIC 11):** BlinkNow nel PRD è una feature ricca — SLA per città/categoria, distribuzione a "cerchi concentrici", fee premium, presidio on-call — con dipendenze operative esplicitamente non ancora decise dal founder (roadmap sez. 24: "BlinkNow dipende da densità dell'offerta, operations e pricing"; OQ-07 è una open question bloccante su pricing/SLA). `TECH_ARCHITECTURE.md` (sez. 7) è esplicito: solo `urgency_tier` + flag `blinknow_enabled` sono predisposti, "pricing e SLA aggiuntivi non implementati ora". Costruire quella parte avrebbe significato inventare cifre di business al posto del founder — scelta: implementare solo il meccanismo (flag → urgenza → boost di matching → notifica opt-in), non il pricing/SLA reali. Nessun gating per città: né `jobs` né `company_locations` hanno un campo città strutturato (solo geografia + etichetta libera) — `feature_flags.enabled_cities` resta non utilizzato, gating solo su categoria.
+
+**Cosa è stato costruito:**
+- Migration 023: `worker_profiles.blinknow_opt_in` (default `false`); `is_blinknow_enabled_for_job(categoria)`; `set_job_blinknow(job_id, enabled)` (solo su bozze, richiede azienda verificata + categoria abilitata dal flag); trigger `notify_on_blinknow_job_published` che notifica solo i lavoratori con opt-in esplicito, geo-eleggibili e non sospesi/bloccati (stesso schema del gap PRD US-022: mai notifiche urgenti senza consenso); `admin_set_feature_flag` (audit-logged, riusabile per M14/M15).
+- Matching engine (`lib/matching/engine.ts`): boost fisso e limitato (+5 punti, cap a 100) per `urgencyTier: 'blinknow'`, sempre indicato in chiaro in `reasons` — il "limitato e registrato" richiesto dal PRD sez. 11.4 è questa trasparenza, non un filtro assoluto o un log separato.
+- Azienda: toggle "Attiva BlinkNow" sulla pagina incarico (solo su bozze, solo se azienda verificata e categoria abilitata) + badge "Urgente · BlinkNow".
+- Lavoratore: `/worker/profile` (pagina nuova — la voce di navigazione esisteva già dal M2 ma puntava a una route inesistente, 404 non ancora notato; corretto qui) con opt-in esplicito alle notifiche urgenti; badge "Urgente" nel feed incarichi.
+- Admin: card "Feature flags" in `/admin/dashboard` con toggle per i 3 flag post-MVP (blinknow/assistant/points), tutti disattivati globalmente di default.
+
+**Bug corretto durante la verifica (non da trial-and-error, da un errore Postgres alla prima esecuzione reale):** `set_job_blinknow` conteneva `urgency_tier = case when p_enabled then 'blinknow' else 'standard' end` — un'espressione `CASE` con literal di testo risolve a tipo `text`, e Postgres non fa cast implicito da `text` a un tipo enum (`42804: column "urgency_tier" is of type urgency_tier but expression is of type text`). Corretto con un cast esplicito `(...)::urgency_tier`. Applicata solo la funzione corretta (idempotente), non l'intera migration.
+
+**Verifica eseguita (browser, flusso reale completo):**
+- `npx tsc --noEmit`, `npm run lint`, `npm test` (30 unitari, 4 nuovi per il boost BlinkNow) puliti.
+- Attivato `blinknow_enabled` globalmente da admin → opt-in di un lavoratore su `/worker/profile` (persistenza confermata dopo reload) → creato un incarico come azienda verificata, attivato BlinkNow (badge "Urgente · BlinkNow" visibile), pubblicato → candidati compatibili mostrano il motivo "incarico urgente BlinkNow: priorità temporanea (+5 punti)" → il lavoratore con opt-in riceve la notifica "Nuovo incarico urgente BlinkNow" (badge "1", contenuto corretto) e vede il badge "Urgente" nel proprio feed incarichi con lo stesso boost. Un lavoratore senza opt-in non riceve nulla (verificato per assenza: solo il lavoratore opt-in ha ricevuto la notifica).
+- Stato demo ripristinato al termine: flag `blinknow_enabled` disattivato globalmente, opt-in del lavoratore di test rimosso — nessuno dei due era stato richiesto come stato permanente.
+
+## M14 — BlinkPoints (completata, simulazione interna senza ricompense)
+
+**Analisi preliminare (PRD, sez. 9.3, requisiti PTS-001..005):** il PRD stesso è esplicito — "Nel pilot può essere simulato internamente senza ricompense monetarie" — un mandato diretto per il ruolo già previsto di `points_ledger` (tabella esistente da M1, RLS abilitata senza policy di scrittura client fin da M10). PTS-005 ("marketplace ricompense") è esplicitamente rimandato dal PRD "solo dopo analisi fiscale e antifrode" — non implementato, coerente con il PRD, non una scelta arbitraria.
+
+**Cosa è stato costruito:**
+- Migration 024: `award_points(...)` (helper interno, no-op se `blinkpoints_enabled` è disattivato — stesso gating di BlinkNow); trigger su `worker_profiles` (badge profilo completato, una tantum, gestisce sia il primo insert al 100% sia un update successivo che ci arriva) e su `reviews` (punti fissi a chi scrive una recensione, indipendenti dal voto — "niente incentivo sul voto positivo" dal PRD); `confirm_assignment_completion` ridefinita per assegnare punti affidabilità nello stesso passaggio atomico del completamento; `admin_adjust_points` (rettifica/revoca manuale con motivo obbligatorio, audit-logged — PTS-004).
+- UI: card "BlinkPoints" su `/worker/profile` (ledger leggibile, totale) e form "Rettifica punti" su `/admin/users`, entrambe visibili solo con il flag attivo.
+
+**Semplificazioni MVP documentate direttamente nella migration (non dimenticanze):**
+- PTS-002 ("livelli e badge configurabili, regole versionate"): valori punti hardcoded (stesso pattern di `calculate_platform_fee_cents`, non una tabella di config editabile — costruirla ora sarebbe prematuro per una simulazione di pilot).
+- "Conferma disponibilità aggiornata → punti periodici": non implementata perché nell'MVP attuale non esiste alcun flusso per modificare la disponibilità dopo l'onboarding iniziale (gap indipendente, fuori perimetro di questa milestone).
+- PTS-004 (revoca per abuso): decisione umana via `admin_adjust_points` invece di una regola automatica legata alle dispute — `resolve_dispute` accetta solo una nota libera, non un esito strutturato da cui derivare in modo affidabile una revoca automatica.
+- PTS-003 (nessun pay-to-rank): soddisfatto per costruzione — `points_ledger` non è mai letto da `reliability_score` (derivato solo dalle recensioni, 019) e nessun flusso di acquisto esiste in questo MVP.
+- PTS-001 (ledger immutabile): nessuna funzione qui esegue update/delete su `points_ledger`, solo insert — verificato anche nel test di rettifica (uno storno è una nuova riga negativa, mai una modifica alla riga originale).
+
+**Verifica eseguita (browser, flusso reale completo):**
+- `npx tsc --noEmit`, `npm run lint`, `npm test` (30 unitari) puliti. Cache Turbopack ripulita (`rm -rf .next`) dopo uno stop del dev server che aveva lasciato un file di tipi generato in stato inconsistente — non un problema del codice applicativo.
+- Attivato `blinkpoints_enabled` da admin → registrato un nuovo lavoratore reale via `/register` e completato l'onboarding (5 competenze, 2 giorni di disponibilità, bio) fino al 100% di completezza → badge "profilo completato" (+50 punti) assegnato automaticamente e visibile su `/worker/profile`, coerente col totale mostrato anche su `/admin/users`.
+- Verificata la rettifica manuale: assegnati e poi stornati 15 punti a un utente reale dalla console admin, storia del ledger intatta (due righe, +15 e -15, mai una modifica).
+- Stato demo ripristinato: flag disattivato globalmente al termine (nessuno dei due era stato richiesto come stato permanente).
+
+## M15 — Blink Assistant (feature "could have", richiede provider AI esterno)
+
+In corso — richiede una decisione del founder su quale provider AI usare prima di procedere (nessun servizio LLM esterno collegato al progetto finora).

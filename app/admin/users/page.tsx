@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth/session";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { UserStatusActions } from "@/features/admin/components/user-status-actions";
+import { AdjustPointsForm } from "@/features/admin/components/adjust-points-form";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 
@@ -27,10 +28,24 @@ export default async function AdminUsersPage() {
   if (!user) redirect("/login");
 
   const supabase = await createClient();
-  const { data: users } = await supabase
-    .from("users")
-    .select("id, email, full_name, role, status, created_at")
-    .order("created_at", { ascending: false });
+  const [{ data: users }, { data: blinkpointsFlag }, { data: pointsRows }] = await Promise.all([
+    supabase
+      .from("users")
+      .select("id, email, full_name, role, status, created_at")
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("feature_flags")
+      .select("enabled_globally")
+      .eq("key", "blinkpoints_enabled")
+      .maybeSingle(),
+    supabase.from("points_ledger").select("user_id, points"),
+  ]);
+
+  const blinkpointsEnabled = blinkpointsFlag?.enabled_globally ?? false;
+  const pointsByUser = new Map<string, number>();
+  for (const row of pointsRows ?? []) {
+    pointsByUser.set(row.user_id, (pointsByUser.get(row.user_id) ?? 0) + row.points);
+  }
 
   return (
     <DashboardShell title="Amministrazione" navItems={NAV_ITEMS} userLabel={user.full_name}>
@@ -49,6 +64,12 @@ export default async function AdminUsersPage() {
               <CardContent className="space-y-2 text-sm text-muted-foreground">
                 <p>{u.email}</p>
                 <UserStatusActions userId={u.id} status={u.status} />
+                {blinkpointsEnabled && u.role === "worker" && (
+                  <div className="space-y-1 border-t pt-2">
+                    <p>BlinkPoints: {pointsByUser.get(u.id) ?? 0}</p>
+                    <AdjustPointsForm userId={u.id} />
+                  </div>
+                )}
               </CardContent>
             </Card>
           ))}
