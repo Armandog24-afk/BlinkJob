@@ -50,7 +50,7 @@ export default async function AdminDisputesPage() {
                 <Card key={d.id}>
                   <CardHeader className="flex flex-row items-center justify-between space-y-0">
                     <CardTitle className="text-base">{job?.title}</CardTitle>
-                    <Badge variant={d.status === "resolved" ? "secondary" : "destructive"}>
+                    <Badge variant={d.status === "resolved" ? "success" : "destructive"}>
                       {STATUS_LABEL[d.status] ?? d.status}
                     </Badge>
                   </CardHeader>

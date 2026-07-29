@@ -26,6 +26,15 @@ const STATUS_LABEL: Record<string, string> = {
   disputed: "In disputa",
 };
 
+const STATUS_VARIANT: Record<string, "default" | "success" | "destructive" | "outline"> = {
+  draft: "outline",
+  pending: "default",
+  confirmed: "default",
+  paid: "success",
+  refunded: "outline",
+  disputed: "destructive",
+};
+
 export default async function CompanyPaymentsPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
@@ -70,7 +79,9 @@ export default async function CompanyPaymentsPage() {
                 <Card key={p.id}>
                   <CardHeader className="flex flex-row items-center justify-between space-y-0">
                     <CardTitle className="text-base">{job?.title}</CardTitle>
-                    <Badge>{STATUS_LABEL[p.status] ?? p.status}</Badge>
+                    <Badge variant={STATUS_VARIANT[p.status] ?? "default"}>
+                      {STATUS_LABEL[p.status] ?? p.status}
+                    </Badge>
                   </CardHeader>
                   <CardContent className="space-y-2 text-sm text-muted-foreground">
                     <p>Lavoratore: {workerUser?.full_name}</p>

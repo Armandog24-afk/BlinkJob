@@ -84,7 +84,7 @@ export default async function AdminBlinknowPage() {
                       {!covered && overdue && job.status === "published" && (
                         <Badge variant="destructive">Scoperto, scaduto</Badge>
                       )}
-                      <Badge variant={covered ? "secondary" : "default"}>
+                      <Badge variant={covered ? "success" : "default"}>
                         {confirmed}/{job.positions_count} coperte
                       </Badge>
                     </div>

@@ -15,8 +15,8 @@ const NAV_ITEMS = [
   { href: "/admin/disputes", label: "Dispute" },
 ];
 
-const STATUS_VARIANT: Record<string, "default" | "secondary" | "destructive"> = {
-  active: "default",
+const STATUS_VARIANT: Record<string, "success" | "secondary" | "destructive"> = {
+  active: "success",
   pending_verification: "secondary",
   limited: "secondary",
   suspended: "destructive",

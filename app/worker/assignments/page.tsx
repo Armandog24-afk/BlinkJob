@@ -26,6 +26,14 @@ const STATUS_LABEL: Record<string, string> = {
   canceled: "Annullato",
 };
 
+const STATUS_VARIANT: Record<string, "default" | "success" | "destructive" | "outline"> = {
+  confirmed: "default",
+  in_progress: "default",
+  completed: "success",
+  disputed: "destructive",
+  canceled: "outline",
+};
+
 const ACTIVE_STATUSES = new Set(["confirmed", "in_progress"]);
 
 export default async function WorkerAssignmentsPage() {
@@ -88,7 +96,9 @@ export default async function WorkerAssignmentsPage() {
       <Card key={a.id}>
         <CardHeader className="flex flex-row items-center justify-between space-y-0">
           <CardTitle className="text-base">{job?.title ?? snapshot.job_title}</CardTitle>
-          <Badge>{STATUS_LABEL[a.status] ?? a.status}</Badge>
+          <Badge variant={STATUS_VARIANT[a.status] ?? "default"}>
+            {STATUS_LABEL[a.status] ?? a.status}
+          </Badge>
         </CardHeader>
         <CardContent className="space-y-2 text-sm text-muted-foreground">
           <p>{company?.legal_name}</p>
