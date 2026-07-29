@@ -164,6 +164,80 @@ export async function cancelJobAction(jobId: string): Promise<ActionState> {
   return transitionJobStatus(jobId, ["draft", "published"], "canceled", user.id);
 }
 
+export async function createTemplateFromJobAction(jobId: string): Promise<ActionState> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+
+  const membership = await getCurrentMembership(user.id);
+  if (!membership) return { error: "Devi far parte di un'azienda." };
+
+  const [{ data: job }, { data: requirements }] = await Promise.all([
+    supabase
+      .from("jobs")
+      .select("title, category, description, positions_count, pay_amount_cents, pay_currency, company_id")
+      .eq("id", jobId)
+      .single(),
+    supabase.from("job_requirements").select("skill_id, mandatory").eq("job_id", jobId),
+  ]);
+
+  if (!job || job.company_id !== membership.companyId) {
+    return { error: "Incarico non trovato." };
+  }
+
+  const { data: template, error: templateError } = await supabase
+    .from("job_templates")
+    .insert({
+      company_id: membership.companyId,
+      created_by: user.id,
+      title: job.title,
+      category: job.category,
+      description: job.description,
+      positions_count: job.positions_count,
+      pay_amount_cents: job.pay_amount_cents,
+      pay_currency: job.pay_currency,
+    })
+    .select("id")
+    .single();
+
+  if (templateError || !template) {
+    console.error("[createTemplateFromJobAction] job_templates insert error:", templateError);
+    return { error: "Impossibile salvare il template. Riprova." };
+  }
+
+  if (requirements && requirements.length > 0) {
+    const { error: reqError } = await supabase.from("job_template_requirements").insert(
+      requirements.map((r) => ({
+        template_id: template.id,
+        skill_id: r.skill_id,
+        mandatory: r.mandatory,
+      }))
+    );
+    if (reqError) {
+      console.error("[createTemplateFromJobAction] job_template_requirements insert error:", reqError);
+      return { error: "Template creato ma non è stato possibile salvare le competenze." };
+    }
+  }
+
+  revalidatePath("/company/jobs/templates");
+  return {};
+}
+
+export async function deleteTemplateAction(templateId: string): Promise<ActionState> {
+  const supabase = await createClient();
+  const { error } = await supabase.from("job_templates").delete().eq("id", templateId);
+
+  if (error) {
+    console.error("[deleteTemplateAction] delete error:", error);
+    return { error: "Impossibile eliminare il template." };
+  }
+
+  revalidatePath("/company/jobs/templates");
+  return {};
+}
+
 export async function setJobBlinknowAction(jobId: string, enabled: boolean): Promise<ActionState> {
   const supabase = await createClient();
   const { error } = await supabase.rpc("set_job_blinknow", {

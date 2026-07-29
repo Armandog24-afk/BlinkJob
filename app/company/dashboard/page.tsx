@@ -8,7 +8,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 const NAV_ITEMS = [
   { href: "/company/dashboard", label: "Panoramica" },
   { href: "/company/jobs", label: "Incarichi" },
+  { href: "/company/jobs/templates", label: "Template" },
   { href: "/company/assignments", label: "Assegnazioni" },
+  { href: "/company/talent-pool", label: "Talent pool" },
   { href: "/company/payments", label: "Pagamenti" },
   { href: "/company/locations", label: "Sedi" },
   { href: "/company/team", label: "Team" },

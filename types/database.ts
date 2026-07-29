@@ -351,6 +351,94 @@ export interface Database {
           },
         ];
       };
+      job_templates: {
+        Row: {
+          id: string;
+          company_id: string;
+          created_by: string;
+          title: string;
+          category: string;
+          description: string;
+          positions_count: number;
+          pay_amount_cents: number;
+          pay_currency: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          company_id: string;
+          created_by: string;
+          title: string;
+          category: string;
+          description: string;
+          positions_count: number;
+          pay_amount_cents: number;
+          pay_currency?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["job_templates"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "job_templates_company_id_fkey";
+            columns: ["company_id"];
+            isOneToOne: false;
+            referencedRelation: "companies";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      job_template_requirements: {
+        Row: { template_id: string; skill_id: string; mandatory: boolean };
+        Insert: { template_id: string; skill_id: string; mandatory?: boolean };
+        Update: Partial<Database["public"]["Tables"]["job_template_requirements"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "job_template_requirements_template_id_fkey";
+            columns: ["template_id"];
+            isOneToOne: false;
+            referencedRelation: "job_templates";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "job_template_requirements_skill_id_fkey";
+            columns: ["skill_id"];
+            isOneToOne: false;
+            referencedRelation: "skill_taxonomy";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      company_worker_favorites: {
+        Row: {
+          company_id: string;
+          worker_id: string;
+          added_by: string;
+          note: string | null;
+          created_at: string;
+        };
+        Insert: {
+          company_id: string;
+          worker_id: string;
+          added_by: string;
+          note?: string | null;
+        };
+        Update: never;
+        Relationships: [
+          {
+            foreignKeyName: "company_worker_favorites_company_id_fkey";
+            columns: ["company_id"];
+            isOneToOne: false;
+            referencedRelation: "companies";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "company_worker_favorites_worker_id_fkey";
+            columns: ["worker_id"];
+            isOneToOne: false;
+            referencedRelation: "worker_profiles";
+            referencedColumns: ["user_id"];
+          },
+        ];
+      };
       applications: {
         Row: {
           id: string;
@@ -800,6 +888,25 @@ export interface Database {
       award_badge: {
         Args: { p_user_id: string; p_badge_key: string };
         Returns: undefined;
+      };
+      add_worker_to_talent_pool: {
+        Args: { p_worker_id: string; p_note?: string | null };
+        Returns: undefined;
+      };
+      remove_worker_from_talent_pool: {
+        Args: { p_worker_id: string };
+        Returns: undefined;
+      };
+      admin_kpi_summary: {
+        Args: Record<string, never>;
+        Returns: {
+          fill_rate: number;
+          median_hours_to_confirm: number;
+          completion_rate: number;
+          no_show_rate: number;
+          dispute_rate: number;
+          payment_success_rate: number;
+        }[];
       };
     };
   };

@@ -140,3 +140,46 @@ export async function addTeamMemberAction(
   revalidatePath("/company/team");
   return {};
 }
+
+export async function addToTalentPoolAction(
+  _prevState: ActionState,
+  formData: FormData
+): Promise<ActionState> {
+  const workerId = formData.get("workerId");
+  const note = formData.get("note");
+  if (typeof workerId !== "string") {
+    return { error: "Lavoratore non valido." };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("add_worker_to_talent_pool", {
+    p_worker_id: workerId,
+    p_note: typeof note === "string" && note.trim() ? note.trim() : null,
+  });
+
+  if (error) {
+    console.error("[addToTalentPoolAction] rpc error:", error);
+    return {
+      error: error.message.includes("completato")
+        ? "Puoi aggiungere al talent pool solo lavoratori con cui hai già completato un incarico."
+        : "Impossibile aggiungere al talent pool. Riprova.",
+    };
+  }
+
+  revalidatePath("/company/talent-pool");
+  revalidatePath("/company/assignments");
+  return {};
+}
+
+export async function removeFromTalentPoolAction(workerId: string): Promise<ActionState> {
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("remove_worker_from_talent_pool", { p_worker_id: workerId });
+
+  if (error) {
+    console.error("[removeFromTalentPoolAction] rpc error:", error);
+    return { error: "Impossibile rimuovere dal talent pool." };
+  }
+
+  revalidatePath("/company/talent-pool");
+  return {};
+}

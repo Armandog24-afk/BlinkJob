@@ -8,6 +8,7 @@ import { JobStatusActions } from "@/features/jobs/components/job-status-actions"
 import { BlinkNowToggle } from "@/features/jobs/components/blinknow-toggle";
 import { InviteButton } from "@/features/applications/components/invite-button";
 import { ApplicationDecisionButtons } from "@/features/applications/components/application-decision-buttons";
+import { SaveAsTemplateButton } from "@/features/jobs/components/save-as-template-button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { formatCents } from "@/lib/utils";
@@ -17,7 +18,9 @@ import { formatWavePriorityLabel } from "@/lib/blinknow/config";
 const NAV_ITEMS = [
   { href: "/company/dashboard", label: "Panoramica" },
   { href: "/company/jobs", label: "Incarichi" },
+  { href: "/company/jobs/templates", label: "Template" },
   { href: "/company/assignments", label: "Assegnazioni" },
+  { href: "/company/talent-pool", label: "Talent pool" },
   { href: "/company/payments", label: "Pagamenti" },
   { href: "/company/locations", label: "Sedi" },
   { href: "/company/team", label: "Team" },
@@ -114,6 +117,7 @@ export default async function CompanyJobDetailPage({
           {job.status === "draft" && (
             <BlinkNowToggle jobId={job.id} urgencyTier={job.urgency_tier} eligible={blinknowEligible} />
           )}
+          <SaveAsTemplateButton jobId={job.id} />
         </div>
 
         {job.urgency_tier === "blinknow" && (

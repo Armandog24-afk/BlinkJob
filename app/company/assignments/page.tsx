@@ -6,14 +6,18 @@ import { DashboardShell } from "@/components/dashboard-shell";
 import { AssignmentActions } from "@/features/assignments/components/assignment-actions";
 import { ReviewForm } from "@/features/reviews/components/review-form";
 import { OpenDisputeForm } from "@/features/disputes/components/open-dispute-form";
+import { AddToTalentPoolForm } from "@/features/companies/components/add-to-talent-pool-form";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { formatCents } from "@/lib/utils";
+import { formatCents, getSiteURL } from "@/lib/utils";
+import { generateQrDataUrl } from "@/lib/qr";
 
 const NAV_ITEMS = [
   { href: "/company/dashboard", label: "Panoramica" },
   { href: "/company/jobs", label: "Incarichi" },
+  { href: "/company/jobs/templates", label: "Template" },
   { href: "/company/assignments", label: "Assegnazioni" },
+  { href: "/company/talent-pool", label: "Talent pool" },
   { href: "/company/payments", label: "Pagamenti" },
   { href: "/company/locations", label: "Sedi" },
   { href: "/company/team", label: "Team" },
@@ -80,6 +84,14 @@ export default async function CompanyAssignmentsPage() {
   const active = (assignments ?? []).filter((a) => ACTIVE_STATUSES.has(a.status));
   const history = (assignments ?? []).filter((a) => !ACTIVE_STATUSES.has(a.status));
 
+  const qrByAssignment = new Map(
+    await Promise.all(
+      active.map(
+        async (a) => [a.id, await generateQrDataUrl(`${getSiteURL()}/checkin/${a.id}`)] as const
+      )
+    )
+  );
+
   function renderAssignment(a: NonNullable<typeof assignments>[number]) {
     const job = Array.isArray(a.jobs) ? a.jobs[0] : a.jobs;
     const workerProfile = Array.isArray(a.worker_profiles) ? a.worker_profiles[0] : a.worker_profiles;
@@ -118,12 +130,31 @@ export default async function CompanyAssignmentsPage() {
             hasCheckedOut={checkedOutIds.has(a.id)}
             viewerRole="company"
           />
+          {qrByAssignment.has(a.id) && (
+            <details className="pt-1">
+              <summary className="cursor-pointer text-xs text-primary underline underline-offset-4">
+                Mostra QR check-in/check-out
+              </summary>
+              <div className="mt-2 flex flex-col items-start gap-1">
+                {/* eslint-disable-next-line @next/next/no-img-element -- data URI generata server-side, non un asset ottimizzabile da next/image */}
+                <img
+                  src={qrByAssignment.get(a.id)}
+                  alt={`QR check-in per ${job?.title}`}
+                  width={160}
+                  height={160}
+                  className="rounded-lg bg-white p-2"
+                />
+                <p className="text-xs">Il lavoratore lo inquadra con la fotocamera per il check-in/out.</p>
+              </div>
+            </details>
+          )}
           {a.status === "completed" &&
             (reviewedIds.has(a.id) ? (
               <p className="text-xs text-muted-foreground">Recensione inviata.</p>
             ) : (
               <ReviewForm assignmentId={a.id} />
             ))}
+          {a.status === "completed" && <AddToTalentPoolForm workerId={a.worker_id} />}
           {(a.status === "in_progress" || a.status === "completed") && (
             <OpenDisputeForm assignmentId={a.id} />
           )}

@@ -1,5 +1,41 @@
 # CHANGELOG — BlinkJob
 
+## M18-M20 — Template incarichi, talent pool, QR check-in, KPI admin (2026-07-29)
+
+**M18 — Job templates + talent pool (`database/migrations/028_job_templates_talent_pool.sql`)**:
+nuove tabelle `job_templates`/`job_template_requirements`/`company_worker_favorites` (RLS per
+azienda) e RPC `add_worker_to_talent_pool`/`remove_worker_from_talent_pool`. Un'azienda può salvare
+un incarico pubblicato come template (`/company/jobs/templates`) e riusarlo per precompilare un
+nuovo incarico (`/company/jobs/new?template=<id>`) — luogo/orari/scadenza restano volutamente fuori
+dal template, da rivedere ogni volta. Dalle assegnazioni completate può aggiungere il lavoratore al
+talent pool (`/company/talent-pool`) per ritrovarlo più facilmente in futuro.
+
+**M19 — QR check-in (`lib/qr.ts`, `app/checkin/[assignmentId]/page.tsx`)**: il QR mostrato
+all'azienda in `/company/assignments` punta a `/checkin/<assignmentId>` — nessun segreto nel codice,
+la sicurezza resta nelle RPC `check_in_assignment`/`check_out_assignment` esistenti
+(`auth.uid() = worker_id`) più un controllo di cortesia nella pagina stessa.
+
+**M20 — KPI reali console admin (`database/migrations/029_admin_kpi_summary.sql`)**: RPC
+`admin_kpi_summary()` calcola fill rate, tempo mediano di conferma, completion rate, no-show rate
+(proxy), dispute rate e payment success rate direttamente da jobs/assignments/disputes/payments —
+niente tabella eventi dedicata (fuori scope, vedi commento in testa alla migrazione), ma dati reali,
+non placeholder. Mostrati in una nuova card su `/admin/dashboard`.
+
+**Bug di regressione trovato e corretto durante la verifica live**: quattro pulsanti (salva
+template, elimina template, rimuovi da talent pool, conferma QR check-in/out) erano stati aggiunti
+passando una closure (`action={() => serverAction(id)}`) direttamente da un Server Component a
+`ActionButton` (Client Component) — React Server Components non riesce a serializzare una funzione
+creata così, causando un errore 500 in produzione su 3 pagine (`/company/jobs/[id]`,
+`/company/jobs/templates`, `/company/talent-pool`, `/checkin/[assignmentId]`). Il pattern corretto,
+già usato ovunque nel resto del codebase, è un piccolo wrapper `"use client"` che riceve solo dati
+semplici (id) come prop e costruisce la closure lui stesso — creati
+`features/jobs/components/save-as-template-button.tsx`,
+`features/jobs/components/delete-template-button.tsx`,
+`features/companies/components/remove-from-talent-pool-button.tsx`,
+`features/assignments/components/qr-checkin-button.tsx`. Verificato l'intero flusso end-to-end in
+produzione dopo il fix (creazione template, precompilazione form, lista talent pool, caricamento
+pagina check-in).
+
 ## Restyling "Neon Arcade" (2026-07-29)
 
 Richiesta dall'utente: rendere il sito più "gamification-friendly" (più colori, energia, senso di

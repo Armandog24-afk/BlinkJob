@@ -2891,6 +2891,203 @@ begin
   end loop;
 end;
 $$;
+-- BlinkJob — 028: M18 (template incarichi + talent pool/preferiti — PRD sez. 21.2 "should have").
+-- Due funzionalità indipendenti, stesso schema di riferimento di `jobs`/`job_requirements` (003)
+-- per coerenza — un template è "gli stessi campi di un incarico, meno luogo/orari/scadenza",
+-- il talent pool è un elenco aziendale di lavoratori con cui si è già lavorato davvero.
+
+create table if not exists job_templates (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references companies(id) on delete cascade,
+  created_by uuid not null references users(id),
+  title text not null,
+  category text not null,
+  description text not null,
+  positions_count int not null check (positions_count > 0),
+  pay_amount_cents int not null check (pay_amount_cents >= 0),
+  pay_currency text not null default 'EUR',
+  created_at timestamptz not null default now()
+);
+
+create table if not exists job_template_requirements (
+  template_id uuid not null references job_templates(id) on delete cascade,
+  skill_id uuid not null references skill_taxonomy(id) on delete restrict,
+  mandatory boolean not null default false,
+  primary key (template_id, skill_id)
+);
+
+alter table job_templates enable row level security;
+alter table job_template_requirements enable row level security;
+
+-- Stesso schema di company_locations_manage (006): solo i membri della propria azienda.
+drop policy if exists job_templates_manage on job_templates;
+create policy job_templates_manage on job_templates for all
+  using (is_company_member(company_id)) with check (is_company_member(company_id));
+
+drop policy if exists job_template_requirements_manage on job_template_requirements;
+create policy job_template_requirements_manage on job_template_requirements for all
+  using (exists (select 1 from job_templates t where t.id = template_id and is_company_member(t.company_id)));
+
+-- Talent pool: solo lavoratori con cui l'azienda ha già completato almeno un incarico — non un
+-- elenco/directory libera di tutti i lavoratori (stesso principio di privacy-by-design già
+-- applicato a worker_badges_company_read_via_candidate, 026, solo più stringente: qui serve un
+-- rapporto di lavoro reale già concluso, non solo idoneità geografica).
+create table if not exists company_worker_favorites (
+  company_id uuid not null references companies(id) on delete cascade,
+  worker_id uuid not null references worker_profiles(user_id) on delete cascade,
+  added_by uuid not null references users(id),
+  note text,
+  created_at timestamptz not null default now(),
+  primary key (company_id, worker_id)
+);
+
+alter table company_worker_favorites enable row level security;
+
+drop policy if exists company_worker_favorites_read on company_worker_favorites;
+create policy company_worker_favorites_read on company_worker_favorites for select
+  using (is_company_member(company_id));
+
+create or replace function public.add_worker_to_talent_pool(p_worker_id uuid, p_note text default null)
+returns void
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_company_id uuid;
+begin
+  select company_id into v_company_id
+  from company_members
+  where user_id = auth.uid()
+  limit 1;
+
+  if v_company_id is null then
+    raise exception 'Devi far parte di un''azienda';
+  end if;
+
+  if not exists (
+    select 1
+    from assignments a
+    join jobs j on j.id = a.job_id
+    where a.worker_id = p_worker_id and j.company_id = v_company_id and a.status = 'completed'
+  ) then
+    raise exception 'Puoi aggiungere al talent pool solo lavoratori con cui hai già completato un incarico';
+  end if;
+
+  insert into company_worker_favorites (company_id, worker_id, added_by, note)
+  values (v_company_id, p_worker_id, auth.uid(), nullif(trim(coalesce(p_note, '')), ''))
+  on conflict (company_id, worker_id) do update set note = excluded.note;
+end;
+$$;
+
+create or replace function public.remove_worker_from_talent_pool(p_worker_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_company_id uuid;
+begin
+  select company_id into v_company_id
+  from company_members
+  where user_id = auth.uid()
+  limit 1;
+
+  if v_company_id is null then
+    raise exception 'Devi far parte di un''azienda';
+  end if;
+
+  delete from company_worker_favorites
+  where company_id = v_company_id and worker_id = p_worker_id;
+end;
+$$;
+
+revoke all on function public.add_worker_to_talent_pool(uuid, text) from public;
+revoke all on function public.remove_worker_from_talent_pool(uuid) from public;
+grant execute on function public.add_worker_to_talent_pool(uuid, text) to authenticated;
+grant execute on function public.remove_worker_from_talent_pool(uuid) to authenticated;
+-- BlinkJob — 029: M20 (KPI reali console admin — PRD sez. 19.3).
+-- Il PRD descrive un intero funnel di eventi dedicato (sez. 19.1/19.2) — costruire quella
+-- infrastruttura (tabella eventi + strumentazione di ogni azione) è un progetto a parte. Qui si
+-- calcolano invece i KPI più utili direttamente dai dati che esistono già (jobs/applications/
+-- assignments/disputes/payments), senza inventare un sistema di tracking separato — più semplice
+-- e comunque reale, non un placeholder.
+--
+-- Semplificazione documentata: il "tempo di conferma" usa `jobs.created_at` come proxy per il
+-- momento di pubblicazione (questo schema non registra un timestamp separato per la transizione
+-- a 'published' — `updated_at` viene sovrascritto a ogni modifica, non solo alla pubblicazione).
+-- Il "no-show rate" è approssimato come assignment annullati senza alcun check-in registrato —
+-- un proxy ragionevole, non l'evento "no-show" esplicito che il PRD prevede a sé (richiederebbe
+-- uno scheduler per rilevare l'assenza al superamento dell'orario di inizio, non presente in
+-- questo stack, stesso limite già documentato per BlinkNow in 025).
+
+create or replace function public.admin_kpi_summary()
+returns table (
+  fill_rate numeric,
+  median_hours_to_confirm numeric,
+  completion_rate numeric,
+  no_show_rate numeric,
+  dispute_rate numeric,
+  payment_success_rate numeric
+)
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_published_positions bigint;
+  v_confirmed_positions bigint;
+  v_non_canceled bigint;
+  v_completed bigint;
+  v_no_show_like bigint;
+  v_disputes bigint;
+  v_paid bigint;
+  v_payments_total bigint;
+  v_median_hours numeric;
+begin
+  if not is_admin_or_support() then
+    raise exception 'Not authorized';
+  end if;
+
+  select coalesce(sum(positions_count), 0) into v_published_positions
+  from jobs
+  where status in ('published', 'in_selection', 'confirmed', 'in_progress', 'completed');
+
+  select count(*) into v_confirmed_positions from assignments where status <> 'canceled';
+
+  select
+    count(*) filter (where status <> 'canceled'),
+    count(*) filter (where status = 'completed'),
+    count(*) filter (
+      where status = 'canceled'
+        and not exists (select 1 from check_events ce where ce.assignment_id = assignments.id and ce.type = 'check_in')
+    )
+  into v_non_canceled, v_completed, v_no_show_like
+  from assignments;
+
+  select count(*) into v_disputes from disputes;
+
+  select count(*) filter (where status = 'paid'), count(*) into v_paid, v_payments_total from payments;
+
+  select percentile_cont(0.5) within group (order by extract(epoch from (a.confirmed_at - j.created_at)) / 3600.0)
+  into v_median_hours
+  from assignments a
+  join jobs j on j.id = a.job_id;
+
+  return query
+  select
+    case when v_published_positions > 0 then round(100.0 * v_confirmed_positions / v_published_positions, 1) else 0 end,
+    round(coalesce(v_median_hours, 0), 1),
+    case when v_non_canceled > 0 then round(100.0 * v_completed / v_non_canceled, 1) else 0 end,
+    case when v_non_canceled > 0 then round(100.0 * v_no_show_like / v_non_canceled, 1) else 0 end,
+    case when v_completed > 0 then round(100.0 * v_disputes / v_completed, 1) else 0 end,
+    case when v_payments_total > 0 then round(100.0 * v_paid / v_payments_total, 1) else 0 end;
+end;
+$$;
+
+revoke all on function public.admin_kpi_summary() from public;
+grant execute on function public.admin_kpi_summary() to authenticated;
 -- BlinkJob — Dev seed data (non-sensitive, fictional). Do NOT use in production.
 -- Assumes corresponding auth.users rows already exist (create via Supabase Auth first,
 -- then insert matching rows here with the same ids).

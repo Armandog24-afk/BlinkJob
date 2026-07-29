@@ -30,6 +30,7 @@ export default async function AdminDashboardPage() {
     { count: assignmentsCompleted },
     { count: disputesOpen },
     { data: paidPayments },
+    { data: kpiRows },
   ] = await Promise.all([
     supabase.from("users").select("id", { count: "exact", head: true }).eq("role", "worker"),
     supabase.from("users").select("id", { count: "exact", head: true }).eq("role", "company_owner"),
@@ -45,7 +46,10 @@ export default async function AdminDashboardPage() {
       .eq("status", "completed"),
     supabase.from("disputes").select("id", { count: "exact", head: true }).eq("status", "open"),
     supabase.from("payments").select("net_amount_cents").eq("status", "paid"),
+    supabase.rpc("admin_kpi_summary"),
   ]);
+
+  const kpi = kpiRows?.[0];
 
   const { data: featureFlags } = await supabase
     .from("feature_flags")
@@ -81,6 +85,38 @@ export default async function AdminDashboardPage() {
             </Card>
           ))}
         </div>
+
+        {kpi && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">KPI (PRD sez. 19)</CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {[
+                { label: "Fill rate", value: `${kpi.fill_rate}%`, hint: "posizioni confermate su pubblicate" },
+                {
+                  label: "Tempo mediano di conferma",
+                  value: `${kpi.median_hours_to_confirm} h`,
+                  hint: "dalla creazione dell'incarico alla conferma",
+                },
+                { label: "Completion rate", value: `${kpi.completion_rate}%`, hint: "assegnazioni completate" },
+                {
+                  label: "No-show rate (stimato)",
+                  value: `${kpi.no_show_rate}%`,
+                  hint: "annullate senza check-in registrato",
+                },
+                { label: "Dispute rate", value: `${kpi.dispute_rate}%`, hint: "dispute su incarichi completati" },
+                { label: "Payment success", value: `${kpi.payment_success_rate}%`, hint: "pagamenti segnati come pagati" },
+              ].map((k) => (
+                <div key={k.label} className="rounded-lg bg-muted p-3">
+                  <p className="text-xl font-semibold">{k.value}</p>
+                  <p className="text-sm font-medium">{k.label}</p>
+                  <p className="text-xs text-muted-foreground">{k.hint}</p>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        )}
 
         <Card>
           <CardHeader>

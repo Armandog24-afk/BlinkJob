@@ -24,25 +24,39 @@ function mapExecutionError(message: string): string {
   return "Impossibile completare l'operazione. Riprova.";
 }
 
-export async function checkInAction(assignmentId: string): Promise<ActionState> {
+export async function checkInAction(
+  assignmentId: string,
+  method: "manual" | "qr" = "manual"
+): Promise<ActionState> {
   const { supabase } = await requireUser();
-  const { error } = await supabase.rpc("check_in_assignment", { p_assignment_id: assignmentId });
+  const { error } = await supabase.rpc("check_in_assignment", {
+    p_assignment_id: assignmentId,
+    p_method: method,
+  });
   if (error) {
     console.error("[checkInAction] rpc error:", error);
     return { error: mapExecutionError(error.message) };
   }
   revalidatePath("/worker/assignments");
+  revalidatePath("/checkin/[assignmentId]", "page");
   return {};
 }
 
-export async function checkOutAction(assignmentId: string): Promise<ActionState> {
+export async function checkOutAction(
+  assignmentId: string,
+  method: "manual" | "qr" = "manual"
+): Promise<ActionState> {
   const { supabase } = await requireUser();
-  const { error } = await supabase.rpc("check_out_assignment", { p_assignment_id: assignmentId });
+  const { error } = await supabase.rpc("check_out_assignment", {
+    p_assignment_id: assignmentId,
+    p_method: method,
+  });
   if (error) {
     console.error("[checkOutAction] rpc error:", error);
     return { error: mapExecutionError(error.message) };
   }
   revalidatePath("/worker/assignments");
+  revalidatePath("/checkin/[assignmentId]", "page");
   return {};
 }
 
