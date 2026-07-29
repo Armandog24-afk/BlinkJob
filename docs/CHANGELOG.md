@@ -1,5 +1,63 @@
 # CHANGELOG — BlinkJob
 
+## Restyling "Neon Arcade" (2026-07-29)
+
+Richiesta dall'utente: rendere il sito più "gamification-friendly" (più colori, energia, senso di
+progresso/ricompensa) invece dell'aspetto grigio/austero di default di shadcn. Lavoro in due fasi.
+
+**Fase 1 (analisi, nessun codice toccato)**: mappati i componenti gamification-friendly esistenti
+(livello/punti BlinkPoints, badge, punteggio matching, badge urgenza BlinkNow, notifiche, KPI
+admin) e proposte 3 direzioni visive complete (palette, tipografia, mockup con i veri componenti
+dell'app) in un artifact. L'utente ha scelto: **layout di "Arcade Energy" (forme molto arrotondate,
+bottoni pillola, ombre colorate, shimmer) con i colori di "Neon Tech" (dark mode nativo, ciano
+#22D3EE, magenta neon #FB3A5D, lime #A3E635)**.
+
+**Fase 2 — cosa è cambiato:**
+- `app/globals.css`: unica fonte di verità del tema riscritta con la nuova palette scura
+  (background #0B0E1A, card #171529, primario ciano, distruttivo/urgenza magenta neon, più due
+  nuovi token semantici `--reward` (lime, per punti/livelli) e `--success` (smeraldo,
+  per stati completati) — separati dall'accento del brand, non riusati per tutto). Raggio bordo
+  base portato da 0.625rem a 1rem (si propaga automaticamente a tutte le scale derivate
+  `radius-xl/2xl/3xl`). Nuove utility condivise `glow-primary`/`glow-destructive`/`glow-reward`
+  (ombre colorate) e animazioni `shimmer`/`pop`, entrambe disattivate sotto
+  `prefers-reduced-motion: reduce`.
+- **Un solo tema, non un toggle**: rimossa la vecchia coppia `:root`/`.dark` — nessun
+  `ThemeProvider` è mai stato collegato in questo progetto (next-themes è usato solo dal toast),
+  quindi mantenere due palette parallele sarebbe stato codice morto. Se in futuro servirà un tema
+  chiaro reale, i valori vanno spostati come descritto nel commento in testa al file.
+- `app/layout.tsx`: aggiunto il font **Fredoka** (rotondo, per i titoli) accanto a Geist via
+  `next/font/google`, collegato tramite il token `--font-heading` già predisposto (usato da
+  `CardTitle`) — zero modifiche per-componente necessarie.
+- `components/ui/button.tsx`: forma pillola (`rounded-full`) invece di `rounded-lg`, hover con
+  leggero sollevamento + ombra colorata (glow), variante `destructive` passata da tinta leggera a
+  riempimento pieno (coerente con il trattamento "bold" scelto, si applica automaticamente a ogni
+  azione pericolosa/urgente dell'app, non solo BlinkNow).
+- `components/ui/card.tsx`: raggio aumentato (`rounded-xl` → `rounded-2xl`).
+- **Nuovo** `components/ui/progress.tsx`: barra di progresso accessibile (ruolo/aria corretti) —
+  prima non esisteva; usata per il livello BlinkPoints, che prima era solo testo.
+- `app/worker/profile/page.tsx`: la card BlinkPoints ora mostra una vera barra di progresso verso
+  il livello successivo (gradiente lime→ciano, shimmer), badge di livello sul token `reward`.
+- `features/notifications/components/notifications-bell-client.tsx`: il pallino dei non letti ora
+  "compare" con una piccola animazione (rispetta reduced-motion).
+- `components/dashboard-shell.tsx`: **due bug di responsività mobile trovati e corretti durante la
+  verifica** (non introdotti da questo restyling, solo scoperti testando su viewport 375px): la nav
+  con 6 voci andava in overflow orizzontale (ora scorrevole, `overflow-x-auto`) e la riga header
+  andava in overflow di 13px con utenti/titoli lunghi (etichetta sezione e nome utente ora nascosti
+  sotto il breakpoint `sm`, restano logo/campanella/uscita).
+
+**Bug reale preesistente trovato e corretto (non introdotto oggi)**: `--font-sans` non è mai stato
+collegato a `--font-geist-sans` (il font iniettato da `next/font` in `app/layout.tsx`) — l'intero
+sito ha sempre reso il testo in **Times New Roman**, il fallback finale del browser, non in Geist.
+Scoperto controllando i `computedStyle` reali durante la verifica di questo restyling, non prima.
+
+**Verifica eseguita:** `npx tsc --noEmit`, `npm run lint`, `npm test` (35 unitari, invariati —
+restyling puramente visivo) puliti. Deploy su Vercel, verificato con `getComputedStyle` diretto sul
+sito pubblicato (non solo visivamente): colori, raggi, gradiente e font confermati corretti dopo
+ogni singola modifica. Responsività mobile verificata (375px) su login, profilo lavoratore,
+dashboard admin e dettaglio incarico azienda — nessun overflow orizzontale residuo. Nessuna
+modifica a logica, dati, route o RLS.
+
+
 ## Deploy demo (2026-07-29) e sospensione temporanea della registrazione
 
 Progetto pubblicato su Vercel (https://blinkjob.vercel.app), collegato al progetto Supabase reale usato per tutto lo sviluppo, per una demo condivisibile. Deploy diretto da CLI locale (GitHub non collegato all'account Vercel dell'utente — nessun OAuth GitHub configurato), variabili d'ambiente Supabase impostate su Vercel per production/preview.

@@ -5,6 +5,7 @@ import { DashboardShell } from "@/components/dashboard-shell";
 import { BlinknowPreferenceForm } from "@/features/workers/components/blinknow-preference-form";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
 import { getPointsLevel, getNextPointsLevel, getBadgeInfo } from "@/lib/points/levels";
 
 const NAV_ITEMS = [
@@ -85,18 +86,27 @@ export default async function WorkerProfilePage() {
         </Card>
 
         {blinkpointsEnabled && (
-          <Card>
+          <Card className="glow-reward">
             <CardHeader>
               <CardTitle className="text-base">
-                BlinkPoints — {totalPoints} punti · Livello {currentLevel.name}
+                BlinkPoints — {totalPoints} punti
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-2 text-sm text-muted-foreground">
-              {nextLevel && (
-                <p>
-                  {nextLevel.minPoints - totalPoints} punti al livello {nextLevel.name}.
-                </p>
-              )}
+            <CardContent className="space-y-3 text-sm text-muted-foreground">
+              <div className="flex items-center gap-2">
+                <Badge className="bg-reward text-reward-foreground">Livello {currentLevel.name}</Badge>
+                {nextLevel && (
+                  <span className="text-xs">
+                    {nextLevel.minPoints - totalPoints} punti al livello {nextLevel.name}
+                  </span>
+                )}
+              </div>
+              <Progress
+                variant="reward"
+                value={totalPoints - currentLevel.minPoints}
+                max={nextLevel ? nextLevel.minPoints - currentLevel.minPoints : 1}
+                aria-label={`${totalPoints} punti, livello ${currentLevel.name}`}
+              />
               <p className="text-xs">
                 Ricompensa non monetaria: piccola priorità di visibilità nel matching e nelle
                 ondate BlinkNow, mai riscattabile in denaro o sconti in questa fase.

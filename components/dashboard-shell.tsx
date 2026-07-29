@@ -21,25 +21,29 @@ export function DashboardShell({
   return (
     <div className="min-h-screen bg-muted/20">
       <header className="border-b bg-background">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
-          <div className="flex items-center gap-6">
-            <Link href="/" className="text-lg font-semibold tracking-tight">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3">
+          <div className="flex min-w-0 items-center gap-6">
+            <Link href="/" className="shrink-0 text-lg font-semibold tracking-tight">
               Blink<span className="text-primary">Job</span>
             </Link>
-            <span className="text-sm text-muted-foreground">{title}</span>
+            <span className="hidden truncate text-sm text-muted-foreground sm:inline">{title}</span>
           </div>
-          <div className="flex items-center gap-4">
-            {userLabel && <span className="text-sm text-muted-foreground">{userLabel}</span>}
+          <div className="flex shrink-0 items-center gap-3 sm:gap-4">
+            {userLabel && (
+              <span className="hidden max-w-32 truncate text-sm text-muted-foreground sm:inline">
+                {userLabel}
+              </span>
+            )}
             <NotificationsBell />
             <LogoutButton />
           </div>
         </div>
-        <nav className="mx-auto flex max-w-6xl gap-4 px-4 pb-2">
+        <nav className="mx-auto flex max-w-6xl gap-4 overflow-x-auto px-4 pb-2">
           {navItems.map((item) => (
             <Link
               key={item.href}
               href={item.href}
-              className="text-sm text-muted-foreground hover:text-foreground"
+              className="shrink-0 text-sm text-muted-foreground transition-colors hover:text-foreground"
             >
               {item.label}
             </Link>

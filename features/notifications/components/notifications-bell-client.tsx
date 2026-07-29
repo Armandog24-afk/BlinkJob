@@ -72,14 +72,14 @@ export function NotificationsBellClient({
       <Button variant="ghost" size="sm" className="relative" onClick={() => setOpen((v) => !v)}>
         <Bell className="size-4" />
         {unreadCount > 0 && (
-          <span className="absolute -right-1 -top-1 flex size-4 items-center justify-center rounded-full bg-destructive text-[10px] text-destructive-foreground">
+          <span className="animate-pop glow-destructive absolute -right-1 -top-1 flex size-4 items-center justify-center rounded-full bg-destructive text-[10px] text-destructive-foreground">
             {unreadCount > 9 ? "9+" : unreadCount}
           </span>
         )}
       </Button>
 
       {open && (
-        <div className="absolute right-0 top-full z-50 mt-2 w-80 rounded-lg border bg-popover p-1 text-popover-foreground shadow-md">
+        <div className="absolute right-0 top-full z-50 mt-2 w-80 rounded-2xl border bg-popover p-1 text-popover-foreground shadow-md">
           <div className="flex items-center justify-between px-2 py-1.5">
             <span className="text-xs font-medium text-muted-foreground">Notifiche</span>
             {unreadCount > 0 && (
