@@ -93,6 +93,18 @@ export async function adjustPointsAction(
   return {};
 }
 
+export async function processBlinknowRefundsAction(): Promise<ActionState> {
+  const supabase = await requireUser();
+  const { data, error } = await supabase.rpc("process_blinknow_refunds");
+  if (error) {
+    console.error("[processBlinknowRefundsAction] rpc error:", error);
+    return { error: "Impossibile verificare i rimborsi BlinkNow." };
+  }
+  revalidatePath("/admin/blinknow");
+  const count = data?.length ?? 0;
+  return count > 0 ? { message: `${count} incarico/i rimborsato/i.` } : { message: "Nessun rimborso dovuto." };
+}
+
 export async function resolveDisputeAction(
   _prevState: ActionState,
   formData: FormData

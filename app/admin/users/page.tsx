@@ -12,6 +12,7 @@ const NAV_ITEMS = [
   { href: "/admin/users", label: "Utenti" },
   { href: "/admin/companies", label: "Aziende" },
   { href: "/admin/jobs", label: "Incarichi" },
+  { href: "/admin/blinknow", label: "BlinkNow" },
   { href: "/admin/disputes", label: "Dispute" },
 ];
 

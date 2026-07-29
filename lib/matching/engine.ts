@@ -2,6 +2,8 @@
 // No ML, no protected attributes — every score is a weighted sum of transparent signals,
 // and every result carries the concrete reasons a human reviewer (or the candidate) can audit.
 
+import { POINTS_LEVELS } from "@/lib/points/levels";
+
 export interface JobForMatching {
   startsAt: string;
   endsAt: string;
@@ -24,6 +26,7 @@ export interface WorkerForMatching {
   skillIds: string[];
   reliabilityScore: number; // 0-5, 0 means "no data yet"
   availability: AvailabilitySlot[];
+  pointsLevel?: 0 | 1 | 2 | 3; // BlinkPoints level (0=Bronzo..3=Platino), see lib/points/levels.ts
 }
 
 export interface MatchResult {
@@ -155,8 +158,18 @@ export function computeMatch(job: JobForMatching, worker: WorkerForMatching): Ma
   // non un filtro/priorità assoluta. Bonus fisso e ridotto, sempre visibile in `reasons` (il
   // "registrato" richiesto dal PRD è questa trasparenza, non un log separato).
   const BLINKNOW_BOOST = 5;
-  const score =
-    job.urgencyTier === "blinknow" ? Math.min(100, baseScore + BLINKNOW_BOOST) : baseScore;
+
+  // BlinkPoints (PTS-002/003): il livello dà un piccolo boost di visibilità, mai un aumento di
+  // reliability_score — guadagnato con azioni verificate (recensioni, incarichi senza problemi),
+  // non acquistabile, quindi non è "pay-to-rank". Sempre più piccolo del boost BlinkNow, che resta
+  // il segnale dominante per l'urgenza reale dell'incarico.
+  const pointsLevelInfo = POINTS_LEVELS.find((l) => l.level === (worker.pointsLevel ?? 0));
+  const POINTS_LEVEL_BOOST = pointsLevelInfo?.matchingBoost ?? 0;
+
+  const score = Math.min(
+    100,
+    baseScore + (job.urgencyTier === "blinknow" ? BLINKNOW_BOOST : 0) + POINTS_LEVEL_BOOST
+  );
 
   const totalMatchedSkills = job.mandatorySkillIds.length + matchedPreferred.length;
   const totalRequiredSkills = job.mandatorySkillIds.length + job.preferredSkillIds.length;
@@ -180,6 +193,10 @@ export function computeMatch(job: JobForMatching, worker: WorkerForMatching): Ma
 
   if (job.urgencyTier === "blinknow") {
     reasons.push(`incarico urgente BlinkNow: priorità temporanea (+${BLINKNOW_BOOST} punti)`);
+  }
+
+  if (POINTS_LEVEL_BOOST > 0 && pointsLevelInfo) {
+    reasons.push(`livello BlinkPoints ${pointsLevelInfo.name}: priorità (+${POINTS_LEVEL_BOOST} punti)`);
   }
 
   return {

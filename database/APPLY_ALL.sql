@@ -2227,6 +2227,670 @@ $$;
 
 revoke all on function public.admin_adjust_points(uuid, int, text) from public;
 grant execute on function public.admin_adjust_points(uuid, int, text) to authenticated;
+-- BlinkJob — 025: M16 (BlinkNow completo — PRD sez. 9.1, requisiti BNW-001..006).
+-- 023 implementava solo il meccanismo (flag → urgenza → boost matching → notifica opt-in),
+-- documentando esplicitamente che pricing/SLA/ondate/lista d'attesa/rimborso mancavano perché
+-- richiedevano numeri di business non ancora decisi. Qui si costruisce il resto, con valori v1
+-- hardcoded (stesso pattern di `calculate_platform_fee_cents`, 018) finché il founder non decide
+-- pricing reali — la struttura resta la stessa, cambiano solo le costanti.
+--
+-- Semplificazioni MVP documentate (deliberate, non dimenticanze):
+-- 1. "Distribuzione a ondate" (BNW-002): il PRD non impone che le ondate siano scaglionate nel
+--    tempo, solo che "ogni ondata registri raggio, destinatari e conversioni". Questo stack non
+--    ha uno scheduler in background (nessun cron/worker) — le ondate vengono quindi calcolate e
+--    notificate tutte insieme alla pubblicazione, ma REGISTRATE separatamente per raggio, cosa
+--    che soddisfa il criterio di accettazione letterale. Un vero scaglionamento temporale richiede
+--    un job scheduler (fuori scope di questa migration, richiede infrastruttura aggiuntiva).
+-- 2. BNW-006 (rimborso automatico): senza scheduler, la regola di rimborso è esposta come RPC
+--    (`process_blinknow_refunds`) invocabile dal pannello admin invece che da un vero cron.
+-- 3. BNW-004 (lista d'attesa automatica): il ranking completo (disponibilità/competenze/
+--    affidabilità) vive in TypeScript (`lib/matching/engine.ts`), non duplicato qui in PL/pgSQL.
+--    Il candidato successivo è scelto per distanza (proxy deterministico, stesso ordine di
+--    idoneità geografica già usato da `candidate_workers_for_job`), non per punteggio completo.
+-- 4. Fee flat v1 (nessuna variazione per città/categoria): il PRD lascia SLA/pricing "per città/
+--    categoria" a una decisione del founder — finché non arriva, un valore unico è la scelta più
+--    semplice (CLAUDE.md: "usa la soluzione più semplice quando manca una decisione").
+
+alter table jobs add column if not exists blinknow_fee_cents int;
+alter table jobs add column if not exists blinknow_fee_status text
+  check (blinknow_fee_status in ('none', 'pending', 'refunded'))
+  not null default 'none';
+alter table jobs add column if not exists blinknow_response_deadline timestamptz;
+
+create or replace function public.calculate_blinknow_fee_cents()
+returns int
+language sql
+immutable
+set search_path = public, extensions
+as $$
+  -- v1: fee flat, nessuna variazione per città/categoria (non ancora decisa dal founder).
+  select 1500;
+$$;
+
+-- Livello BlinkPoints di un utente, dedotto dal totale punti — soglie v1 hardcoded, tenute
+-- allineate manualmente a lib/points/levels.ts (stesso pattern di calculate_platform_fee_cents
+-- duplicato in lib/payments/fees.ts per i test unitari, 018).
+create or replace function public.worker_points_level(p_user_id uuid)
+returns smallint
+language sql
+stable
+set search_path = public, extensions
+as $$
+  select case
+    when coalesce((select sum(points) from points_ledger where user_id = p_user_id), 0) >= 600 then 3
+    when coalesce((select sum(points) from points_ledger where user_id = p_user_id), 0) >= 300 then 2
+    when coalesce((select sum(points) from points_ledger where user_id = p_user_id), 0) >= 100 then 1
+    else 0
+  end;
+$$;
+
+-- BNW-001: attivazione con fee e SLA (countdown) espliciti, confermati contestualmente
+-- dall'azienda (il pulsante "Attiva BlinkNow" nella UI mostra fee e scadenza prima del click).
+create or replace function public.set_job_blinknow(p_job_id uuid, p_enabled boolean)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_job jobs%rowtype;
+  v_company companies%rowtype;
+begin
+  select * into v_job from jobs where id = p_job_id;
+  if not found then
+    raise exception 'Job not found';
+  end if;
+
+  if not is_company_member(v_job.company_id) then
+    raise exception 'Not authorized to modify this job';
+  end if;
+
+  if v_job.status <> 'draft' then
+    raise exception 'BlinkNow can only be toggled while the job is a draft (status: %)', v_job.status;
+  end if;
+
+  if p_enabled then
+    select * into v_company from companies where id = v_job.company_id;
+    if v_company.status <> 'active' then
+      raise exception 'Only verified (active) companies can activate BlinkNow';
+    end if;
+    if not is_blinknow_enabled_for_job(v_job.category) then
+      raise exception 'BlinkNow is not enabled for this job category yet';
+    end if;
+
+    update jobs
+    set urgency_tier = 'blinknow',
+        blinknow_fee_cents = calculate_blinknow_fee_cents(),
+        blinknow_fee_status = 'pending',
+        blinknow_response_deadline = least(v_job.starts_at, now() + interval '6 hours')
+    where id = p_job_id;
+  else
+    update jobs
+    set urgency_tier = 'standard',
+        blinknow_fee_cents = null,
+        blinknow_fee_status = 'none',
+        blinknow_response_deadline = null
+    where id = p_job_id;
+  end if;
+end;
+$$;
+
+-- BNW-002: distribuzione a cerchi concentrici. Bande di distanza assolute dal luogo
+-- dell'incarico (v1: 5/15/30 km, non ancora configurabili per città/categoria); i lavoratori con
+-- un livello BlinkPoints più alto vengono promossi a un'ondata precedente (perk non monetario,
+-- PTS-003-compliant: dipende da azioni verificate, non da acquisti). Ogni destinatario viene
+-- registrato con la propria ondata/raggio nel payload della notifica — le conversioni si
+-- calcolano a posteriori confrontando `created_at` con le candidature successive (query in
+-- `blinknow_wave_stats`), senza bisogno di una tabella/trigger aggiuntivi.
+create or replace function public.notify_on_blinknow_job_published()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_location company_locations%rowtype;
+  v_worker record;
+  v_distance_km numeric;
+  v_band smallint;
+  v_wave smallint;
+begin
+  if new.status = 'published' and new.urgency_tier = 'blinknow'
+     and (old.status is distinct from new.status or old.urgency_tier is distinct from new.urgency_tier) then
+
+    select * into v_location from company_locations where id = new.location_id;
+
+    for v_worker in
+      select wp.user_id, ST_Distance(wp.home_location, v_location.location) / 1000.0 as distance_km
+      from worker_profiles wp
+      join users u on u.id = wp.user_id
+      where wp.blinknow_opt_in = true
+        and wp.home_location is not null
+        and u.status not in ('suspended', 'blocked')
+        and ST_Distance(wp.home_location, v_location.location) / 1000.0 <= wp.operating_radius_km
+    loop
+      v_distance_km := v_worker.distance_km;
+      v_band := case
+        when v_distance_km <= 5 then 1
+        when v_distance_km <= 15 then 2
+        when v_distance_km <= 30 then 3
+        else 4
+      end;
+      v_wave := greatest(1, v_band - worker_points_level(v_worker.user_id));
+
+      insert into notifications (user_id, event_type, payload)
+      values (
+        v_worker.user_id, 'blinknow_job_available',
+        jsonb_build_object(
+          'job_id', new.id, 'job_title', new.title,
+          'wave_number', v_wave, 'distance_km', round(v_distance_km, 1)
+        )
+      );
+    end loop;
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_notify_on_blinknow_job_published on jobs;
+create trigger trg_notify_on_blinknow_job_published
+  after update on jobs
+  for each row execute function notify_on_blinknow_job_published();
+
+-- BNW-002/BNW-005: statistiche per ondata (raggio implicito nel numero d'onda, destinatari,
+-- conversioni) per il pannello operativo admin e per la pagina incarico dell'azienda.
+create or replace function public.blinknow_wave_stats(p_job_id uuid)
+returns table (wave_number int, notified_count bigint, applied_count bigint)
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if not exists (
+    select 1 from jobs j where j.id = p_job_id and (is_company_member(j.company_id) or is_admin_or_support())
+  ) then
+    raise exception 'Not authorized to view BlinkNow stats for this job';
+  end if;
+
+  return query
+    select
+      (n.payload->>'wave_number')::int as wave_number,
+      count(*) as notified_count,
+      count(*) filter (
+        where exists (
+          select 1 from applications a
+          where a.job_id = p_job_id and a.worker_id = n.user_id and a.created_at >= n.created_at
+        )
+      ) as applied_count
+    from notifications n
+    where n.event_type = 'blinknow_job_available'
+      and n.payload->>'job_id' = p_job_id::text
+    group by (n.payload->>'wave_number')::int
+    order by wave_number;
+end;
+$$;
+
+-- BNW-004: lista d'attesa automatica. Alla cancellazione di un assignment su un incarico
+-- BlinkNow ancora pubblicato, scaduto il quale restano posizioni scoperte, invita subito il
+-- prossimo candidato geo-idoneo non ancora coinvolto (nessuna candidatura/invito precedente per
+-- questo incarico) — l'invito richiede comunque l'accettazione del lavoratore
+-- (`accept_invite`, 016) o la conferma dell'azienda: automatizziamo "chi è il prossimo", non la
+-- conferma finale, restando coerenti con la supervisione umana richiesta altrove nel PRD (sez. 9.2).
+create or replace function public.cancel_assignment(p_assignment_id uuid, p_note text default null)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_assignment assignments%rowtype;
+  v_job jobs%rowtype;
+  v_location company_locations%rowtype;
+  v_confirmed_count int;
+  v_next_worker_id uuid;
+begin
+  select * into v_assignment from assignments where id = p_assignment_id;
+  if not found then
+    raise exception 'Assignment not found';
+  end if;
+
+  select * into v_job from jobs where id = v_assignment.job_id;
+
+  if v_assignment.worker_id <> auth.uid() and not is_company_member(v_job.company_id) then
+    raise exception 'Not authorized to cancel this assignment';
+  end if;
+
+  if v_assignment.status not in ('confirmed', 'in_progress') then
+    raise exception 'Assignment can no longer be canceled (status: %)', v_assignment.status;
+  end if;
+
+  update assignments set status = 'canceled' where id = p_assignment_id;
+
+  if p_note is not null then
+    insert into audit_events (actor_id, action, resource_type, resource_id, metadata)
+    values (auth.uid(), 'assignment_canceled', 'assignment', p_assignment_id, jsonb_build_object('note', p_note));
+  end if;
+
+  if v_job.urgency_tier = 'blinknow' and v_job.status = 'published'
+     and (v_job.blinknow_response_deadline is null or now() < v_job.blinknow_response_deadline) then
+
+    select count(*) into v_confirmed_count from assignments where job_id = v_job.id and status <> 'canceled';
+
+    if v_confirmed_count < v_job.positions_count then
+      select * into v_location from company_locations where id = v_job.location_id;
+
+      select wp.user_id into v_next_worker_id
+      from worker_profiles wp
+      join users u on u.id = wp.user_id
+      where wp.home_location is not null
+        and u.status not in ('suspended', 'blocked')
+        and ST_Distance(wp.home_location, v_location.location) / 1000.0 <= wp.operating_radius_km
+        and not exists (
+          select 1 from applications a where a.job_id = v_job.id and a.worker_id = wp.user_id
+        )
+      order by ST_Distance(wp.home_location, v_location.location) asc
+      limit 1;
+
+      if v_next_worker_id is not null then
+        insert into applications (job_id, worker_id, type, status)
+        values (v_job.id, v_next_worker_id, 'invite', 'sent');
+
+        insert into notifications (user_id, event_type, payload)
+        values (
+          v_next_worker_id, 'blinknow_waitlist_invite',
+          jsonb_build_object('job_id', v_job.id, 'job_title', v_job.title)
+        );
+      end if;
+    end if;
+  end if;
+end;
+$$;
+
+-- BNW-006: rimborso automatico della fee se, scaduta la finestra di risposta, nessuna posizione
+-- risulta coperta. Senza uno scheduler in background, esposto come RPC invocabile dal pannello
+-- admin (`process_blinknow_refunds`) invece che da un vero cron.
+create or replace function public.process_blinknow_refunds()
+returns table (job_id uuid, refunded_cents int)
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if not is_admin_or_support() then
+    raise exception 'Not authorized';
+  end if;
+
+  return query
+    with overdue as (
+      select j.id, j.blinknow_fee_cents
+      from jobs j
+      where j.urgency_tier = 'blinknow'
+        and j.blinknow_fee_status = 'pending'
+        and j.blinknow_response_deadline is not null
+        and j.blinknow_response_deadline < now()
+        and not exists (select 1 from assignments a where a.job_id = j.id and a.status <> 'canceled')
+    ),
+    updated as (
+      update jobs set blinknow_fee_status = 'refunded'
+      where id in (select id from overdue)
+      returning id, blinknow_fee_cents
+    )
+    select updated.id, updated.blinknow_fee_cents from updated;
+end;
+$$;
+
+revoke all on function public.set_job_blinknow(uuid, boolean) from public;
+revoke all on function public.blinknow_wave_stats(uuid) from public;
+revoke all on function public.cancel_assignment(uuid, text) from public;
+revoke all on function public.process_blinknow_refunds() from public;
+grant execute on function public.set_job_blinknow(uuid, boolean) to authenticated;
+grant execute on function public.blinknow_wave_stats(uuid) to authenticated;
+grant execute on function public.cancel_assignment(uuid, text) to authenticated;
+grant execute on function public.process_blinknow_refunds() to authenticated;
+-- BlinkJob — 026: M17 (BlinkPoints — livelli, ricompense non monetarie, badge — PRD PTS-002).
+-- 024 implementava solo il ledger (PTS-001/003/004): punti assegnati, mai riscattabili. Qui si
+-- aggiunge PTS-002 ("livelli e badge configurabili, regole versionate") con ricompense
+-- deliberatamente NON monetarie: priorità nelle ondate BlinkNow (025) e un piccolo boost di
+-- visibilità nel matching, mai un aumento di `reliability_score` (che resta derivato solo dalle
+-- recensioni, 019 — PTS-003 "nessun pay-to-rank" resta rispettato per costruzione). PTS-005
+-- (marketplace ricompense reali/monetarie) resta esplicitamente fuori scope: il PRD lo vieta
+-- "solo dopo analisi fiscale e antifrode" — nessuna riga qui introduce denaro reale o sconti.
+--
+-- Semplificazioni MVP documentate:
+-- 1. Soglie livello (100/300/600 punti) e valori badge hardcoded qui, tenute allineate a mano a
+--    lib/points/levels.ts — stesso pattern già accettato per calculate_platform_fee_cents/
+--    lib/payments/fees.ts (018) e worker_points_level (025).
+-- 2. `worker_badges` è append-only per lo stesso motivo di `points_ledger` (PTS-001): un catalogo
+--    di eventi verificabili, non un contenuto editabile.
+
+-- Il matching lato azienda (features/matching/queries.ts) calcola il livello BlinkPoints dei
+-- candidati per il boost di visibilità (lib/matching/engine.ts) — `points_ledger_owner_read`
+-- (021) permette solo la lettura dei propri punti, quindi senza questa policy la query
+-- restituirebbe righe vuote per ogni candidato e il livello risulterebbe sempre 0 lato azienda.
+-- Stesso schema di `worker_badges_company_read_via_candidate` più sotto.
+drop policy if exists points_ledger_company_read_via_candidate on points_ledger;
+create policy points_ledger_company_read_via_candidate on points_ledger for select
+  using (is_geo_candidate_for_company_job(user_id));
+
+create table if not exists worker_badges (
+  id uuid primary key default gen_random_uuid(),
+  worker_id uuid not null references worker_profiles(user_id) on delete cascade,
+  badge_key text not null,
+  awarded_at timestamptz not null default now(),
+  unique (worker_id, badge_key)
+);
+
+alter table worker_badges enable row level security;
+
+drop policy if exists worker_badges_owner_read on worker_badges;
+create policy worker_badges_owner_read on worker_badges for select
+  using (worker_id = auth.uid() or is_admin_or_support());
+
+-- I badge di un lavoratore sono un segnale di fiducia pensato anche per l'azienda che valuta un
+-- candidato (mostrato nella lista candidati, 003/011) — stesso ragionamento di
+-- `worker_profiles_company_read` (006): lettura per l'azienda solo sui candidati geo-idonei ai
+-- propri incarichi pubblicati, mai un elenco libero di tutti i lavoratori.
+drop policy if exists worker_badges_company_read_via_candidate on worker_badges;
+create policy worker_badges_company_read_via_candidate on worker_badges for select
+  using (is_geo_candidate_for_company_job(worker_id));
+
+create or replace function public.award_badge(p_user_id uuid, p_badge_key text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if not coalesce((select enabled_globally from feature_flags where key = 'blinkpoints_enabled'), false) then
+    return;
+  end if;
+
+  insert into worker_badges (worker_id, badge_key)
+  values (p_user_id, p_badge_key)
+  on conflict (worker_id, badge_key) do nothing;
+end;
+$$;
+
+-- Profilo completo: ora assegna anche il badge, oltre ai punti già esistenti (024).
+create or replace function public.award_points_on_profile_completion()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.completeness_score = 100 and (tg_op = 'INSERT' or old.completeness_score < 100) then
+    perform award_points(new.user_id, 50, 'profile_completed_badge', 'worker_profiles', new.user_id);
+    perform award_badge(new.user_id, 'profilo_completo');
+  end if;
+  return new;
+end;
+$$;
+
+-- Recensioni: 024 premiava solo chi SCRIVE una recensione. Qui si aggiunge un badge per chi la
+-- RICEVE per la prima volta (costruzione della propria reputazione), senza toccare i punti
+-- esistenti né introdurre un incentivo sul voto (il badge non dipende dal rating).
+create or replace function public.award_points_on_review_insert()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_recipient_review_count int;
+begin
+  perform award_points(new.author_id, 5, 'review_contributed', 'review', new.id);
+
+  select count(*) into v_recipient_review_count
+  from reviews where recipient_id = new.recipient_id and moderation_status = 'published';
+
+  if v_recipient_review_count = 1 and exists (select 1 from worker_profiles where user_id = new.recipient_id) then
+    perform award_badge(new.recipient_id, 'prima_recensione_ricevuta');
+  end if;
+
+  return new;
+end;
+$$;
+
+-- Affidabilità 5 stelle: badge quando la media raggiunge 5.0 con almeno 3 recensioni pubblicate
+-- (evita che un singolo voto fortunato lo assegni). Ridefinisce 019's trigger function.
+create or replace function public.recompute_worker_reliability()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_avg numeric;
+  v_count int;
+begin
+  if exists (select 1 from worker_profiles where user_id = new.recipient_id) then
+    select round(avg((rating_dimensions->>'overall')::numeric), 1), count(*)
+    into v_avg, v_count
+    from reviews
+    where recipient_id = new.recipient_id and moderation_status = 'published';
+
+    update worker_profiles set reliability_score = coalesce(v_avg, 0) where user_id = new.recipient_id;
+
+    if v_avg = 5 and v_count >= 3 then
+      perform award_badge(new.recipient_id, 'affidabile_5_stelle');
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+-- Dieci incarichi completati: ridefinisce 024's confirm_assignment_completion per aggiungere il
+-- controllo soglia nello stesso passaggio atomico (nessun'altra logica cambiata).
+create or replace function public.confirm_assignment_completion(p_assignment_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_assignment assignments%rowtype;
+  v_job jobs%rowtype;
+  v_gross int;
+  v_fee int;
+  v_confirmed_by_worker boolean;
+  v_completed_count int;
+begin
+  select * into v_assignment from assignments where id = p_assignment_id;
+  if not found then
+    raise exception 'Assignment not found';
+  end if;
+
+  select * into v_job from jobs where id = v_assignment.job_id;
+
+  if v_assignment.worker_id <> auth.uid() and not is_company_member(v_job.company_id) then
+    raise exception 'Not authorized to confirm completion of this assignment';
+  end if;
+
+  if v_assignment.status <> 'in_progress' then
+    raise exception 'Assignment is not in progress (status: %)', v_assignment.status;
+  end if;
+
+  if not exists (
+    select 1 from check_events where assignment_id = p_assignment_id and type = 'check_out'
+  ) then
+    raise exception 'Cannot confirm completion before check-out';
+  end if;
+
+  v_confirmed_by_worker := v_assignment.worker_id = auth.uid();
+
+  update assignments set status = 'completed' where id = p_assignment_id;
+
+  v_gross := (v_assignment.confirmed_terms_snapshot->>'pay_amount_cents')::int;
+  v_fee := calculate_platform_fee_cents(v_gross);
+
+  insert into payments (
+    assignment_id, gross_amount_cents, platform_fee_cents, fee_version, net_amount_cents,
+    currency, status, provider
+  )
+  values (
+    p_assignment_id, v_gross, v_fee, 'v1', v_gross - v_fee,
+    coalesce(v_assignment.confirmed_terms_snapshot->>'pay_currency', 'EUR'), 'pending', 'tracked_ledger'
+  );
+
+  perform award_points(v_assignment.worker_id, 20, 'assignment_completed_no_issues', 'assignment', p_assignment_id);
+
+  select count(*) into v_completed_count
+  from assignments where worker_id = v_assignment.worker_id and status = 'completed';
+  if v_completed_count >= 10 then
+    perform award_badge(v_assignment.worker_id, 'dieci_incarichi_completati');
+  end if;
+
+  if v_confirmed_by_worker then
+    insert into notifications (user_id, event_type, payload)
+    select cm.user_id, 'assignment_completed',
+      jsonb_build_object('job_title', v_job.title, 'assignment_id', p_assignment_id)
+    from company_members cm
+    where cm.company_id = v_job.company_id;
+  else
+    insert into notifications (user_id, event_type, payload)
+    values (
+      v_assignment.worker_id, 'assignment_completed',
+      jsonb_build_object('job_title', v_job.title, 'assignment_id', p_assignment_id)
+    );
+  end if;
+end;
+$$;
+
+-- Badge di livello: assegnati al superamento di una soglia punti. Valutati ad ogni movimento del
+-- ledger (append-only, 024) invece che con un cron, coerente col resto di questa migration.
+create or replace function public.award_level_badges_on_points_change()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_level smallint;
+begin
+  v_level := worker_points_level(new.user_id);
+  if v_level >= 1 then perform award_badge(new.user_id, 'livello_argento'); end if;
+  if v_level >= 2 then perform award_badge(new.user_id, 'livello_oro'); end if;
+  if v_level >= 3 then perform award_badge(new.user_id, 'livello_platino'); end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_award_level_badges_on_points_change on points_ledger;
+create trigger trg_award_level_badges_on_points_change
+  after insert on points_ledger
+  for each row execute function award_level_badges_on_points_change();
+
+revoke all on function public.award_badge(uuid, text) from public;
+grant execute on function public.award_badge(uuid, text) to authenticated;
+-- BlinkJob — 027: correzioni da Supabase Security Advisor (richiesta esplicita dell'utente,
+-- 2026-07-29, controllo eseguito leggendo tutte le migration invece che il dashboard — nessun
+-- accesso autenticato disponibile a questo agente).
+--
+-- Tre problemi reali trovati:
+-- 1. `skill_taxonomy` (002) non ha mai avuto RLS abilitata — unica tabella pubblica dimenticata
+--    quando 006 ha abilitato RLS su tutte le altre. Dati non sensibili (solo un catalogo di
+--    competenze), ma senza RLS sarebbe scrivibile da qualunque chiave anon/authenticated via
+--    REST API (`rls_disabled_in_public`, ERROR).
+-- 2. `uuid-ossp`, `postgis`, `pgcrypto` installate nello schema `public` (001) invece che in uno
+--    schema dedicato (`extension_in_public`, ERROR — raccomandazione standard di Supabase).
+--    PostGIS non supporta lo spostamento in questo ambiente (vedi nota al punto 2 più sotto) e
+--    resta un rischio accettato; le altre due vengono spostate.
+-- 3. Tre funzioni fondamentali in 006 (`current_user_role`, `is_company_member`,
+--    `is_admin_or_support`) non hanno mai avuto `search_path` fissato — sfuggite a tutti i
+--    controlli precedenti in questa sessione perché scritte in uno stile compatto
+--    ("... as $$ ... $$ language sql stable security definer;") diverso dal pattern usato da
+--    ogni migration successiva. Le prime due sono SECURITY DEFINER: senza search_path fissato,
+--    chi potesse creare oggetti in uno schema presente nel proprio search_path potrebbe in teoria
+--    far risolvere "users" verso una tabella contraffatta, falsificando il proprio ruolo
+--    (`function_search_path_mutable`, ERROR per funzioni SECURITY DEFINER).
+--
+-- Spostare le estensioni fuori da `public` richiede aggiornare il search_path di OGNI funzione
+-- che usa PostGIS/pgcrypto (altrimenti `ST_Distance`/`gen_random_uuid` non si risolverebbero più
+-- dentro le funzioni che fissano `search_path = public`) — fatto qui con un blocco dinamico
+-- invece di elencare a mano ~30 firme, per evitare di dimenticarne una.
+
+-- 1. skill_taxonomy: stesso pattern di sola-lettura-pubblica + scrittura-staff di feature_flags
+-- (006) — è un catalogo di riferimento, non dati per-utente.
+alter table skill_taxonomy enable row level security;
+
+drop policy if exists skill_taxonomy_read on skill_taxonomy;
+create policy skill_taxonomy_read on skill_taxonomy for select using (true);
+
+drop policy if exists skill_taxonomy_staff_write on skill_taxonomy;
+create policy skill_taxonomy_staff_write on skill_taxonomy for all
+  using (is_admin_or_support()) with check (is_admin_or_support());
+
+-- 2. Estensioni fuori da public. `extensions` è lo schema che Supabase crea di default in ogni
+-- progetto per questo esatto scopo ed è già incluso nel search_path di sessione del SQL Editor.
+-- `alter extension ... set schema` NON è idempotente (errore se già spostata) — a differenza di
+-- ogni altra istruzione in questo file, quindi qui serve una guardia esplicita per poter rilanciare
+-- questa migration in sicurezza in caso di dubbio su un'esecuzione precedente.
+--
+-- PostGIS però NON supporta affatto `SET SCHEMA` in questo ambiente (Postgres restituisce
+-- l'errore "0A000: extension postgis does not support SET SCHEMA" — l'estensione è marcata
+-- "non rilocabile" dal suo stesso control file, non è un limite di questo script). L'unica strada
+-- per spostarla davvero sarebbe drop/recreate, il che farebbe cadere in cascata OGNI colonna
+-- `geography`/`geometry` esistente (home_location, company_locations.location, ecc.) — una
+-- migrazione dati distruttiva e sproporzionata solo per silenziare un avviso di postura. PostGIS
+-- resta quindi in `public`: rischio accettato e documentato (è la scelta comune per progetti
+-- Supabase che usano PostGIS, non una scorciatoia presa qui). `uuid-ossp`/`pgcrypto` invece
+-- supportano lo spostamento e vengono spostate.
+create schema if not exists extensions;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_extension e join pg_namespace n on n.oid = e.extnamespace
+    where e.extname = 'uuid-ossp' and n.nspname = 'extensions'
+  ) then
+    alter extension "uuid-ossp" set schema extensions;
+  end if;
+
+  if not exists (
+    select 1 from pg_extension e join pg_namespace n on n.oid = e.extnamespace
+    where e.extname = 'pgcrypto' and n.nspname = 'extensions'
+  ) then
+    alter extension pgcrypto set schema extensions;
+  end if;
+end;
+$$;
+
+-- 3a. Le tre funzioni fondamentali di 006, mai coperte da `set search_path` finora.
+alter function public.current_user_role() set search_path = public, extensions;
+alter function public.is_company_member(uuid) set search_path = public, extensions;
+alter function public.is_admin_or_support() set search_path = public, extensions;
+
+-- 3b. Altra funzione già in produzione (023) scritta senza search_path esplicito (non security
+-- definer, ma il linter la segnala comunque come buona pratica mancante) e il trigger di 004.
+-- Nota: `worker_points_level`/`calculate_blinknow_fee_cents` (025, non ancora applicata quando
+-- questa migration può girare) nascono già con `search_path = public, extensions` impostato
+-- direttamente alla creazione — Postgres non richiede che gli schemi elencati in `search_path`
+-- esistano già, quindi l'ordine fra questa migration e 025 non ha importanza.
+alter function public.is_blinknow_enabled_for_job(text) set search_path = public, extensions;
+alter function public.enforce_payment_requires_completed_assignment() set search_path = public, extensions;
+
+-- 3c. Ogni funzione che aveva già `search_path = public` fissato (007 in poi): estende
+-- l'impostazione esistente per includere anche `extensions`, così le chiamate a PostGIS/pgcrypto
+-- al loro interno continuano a risolversi dopo lo spostamento del punto 2. Un blocco dinamico
+-- evita di elencare a mano ogni firma (con relativo rischio di dimenticarne una).
+do $$
+declare
+  r record;
+begin
+  for r in
+    select p.oid::regprocedure as sig
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public'
+      and p.proconfig is not null
+      and exists (select 1 from unnest(p.proconfig) cfg where cfg = 'search_path=public')
+  loop
+    execute format('alter function %s set search_path = public, extensions', r.sig);
+  end loop;
+end;
+$$;
 -- BlinkJob — Dev seed data (non-sensitive, fictional). Do NOT use in production.
 -- Assumes corresponding auth.users rows already exist (create via Supabase Auth first,
 -- then insert matching rows here with the same ids).

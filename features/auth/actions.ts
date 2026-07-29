@@ -13,6 +13,7 @@ import type { UserRole } from "@/types/database";
 
 export interface ActionState {
   error?: string;
+  message?: string;
 }
 
 const ROLE_HOME: Record<UserRole, string> = {

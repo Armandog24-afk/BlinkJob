@@ -1,6 +1,37 @@
 import "server-only";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { computeMatch, type AvailabilitySlot, type MatchResult } from "@/lib/matching/engine";
+import { getPointsLevel } from "@/lib/points/levels";
+import type { Database } from "@/types/database";
+
+/**
+ * BlinkPoints level per worker, computed client-side from the raw ledger (single query for N
+ * workers) instead of one `worker_points_level` RPC call per worker — same threshold logic as
+ * the SQL source of truth, kept in sync manually (lib/points/levels.ts).
+ */
+async function getPointsLevelsByWorker(
+  supabase: SupabaseClient<Database>,
+  workerIds: string[]
+): Promise<Map<string, 0 | 1 | 2 | 3>> {
+  if (workerIds.length === 0) return new Map();
+
+  const { data: rows } = await supabase
+    .from("points_ledger")
+    .select("user_id, points")
+    .in("user_id", workerIds);
+
+  const totals = new Map<string, number>();
+  for (const row of rows ?? []) {
+    totals.set(row.user_id, (totals.get(row.user_id) ?? 0) + row.points);
+  }
+
+  const levels = new Map<string, 0 | 1 | 2 | 3>();
+  for (const workerId of workerIds) {
+    levels.set(workerId, getPointsLevel(totals.get(workerId) ?? 0).level);
+  }
+  return levels;
+}
 
 function groupBy<T, K>(items: T[], keyFn: (item: T) => K): Map<K, T[]> {
   const map = new Map<K, T[]>();
@@ -16,6 +47,8 @@ function groupBy<T, K>(items: T[], keyFn: (item: T) => K): Map<K, T[]> {
 export interface CandidateMatch extends MatchResult {
   workerId: string;
   fullName: string;
+  pointsLevel: 0 | 1 | 2 | 3;
+  badges: string[];
 }
 
 /** Ranked, explainable list of candidate workers for a company's job (company-side view). */
@@ -46,6 +79,13 @@ export async function getCandidatesForJob(jobId: string): Promise<CandidateMatch
 
   const skillsByWorker = groupBy(skillRows ?? [], (r) => r.worker_id);
   const availabilityByWorker = groupBy(availabilityRows ?? [], (r) => r.worker_id);
+  const levelByWorker = await getPointsLevelsByWorker(supabase, workerIds);
+
+  const { data: badgeRows } = await supabase
+    .from("worker_badges")
+    .select("worker_id, badge_key")
+    .in("worker_id", workerIds);
+  const badgesByWorker = groupBy(badgeRows ?? [], (r) => r.worker_id);
 
   const jobForMatching = {
     startsAt: job.starts_at,
@@ -74,10 +114,17 @@ export async function getCandidatesForJob(jobId: string): Promise<CandidateMatch
       skillIds: (skillsByWorker.get(candidate.worker_id) ?? []).map((s) => s.skill_id),
       reliabilityScore: candidate.reliability_score,
       availability,
+      pointsLevel: levelByWorker.get(candidate.worker_id) ?? 0,
     });
 
     if (match) {
-      results.push({ workerId: candidate.worker_id, fullName: candidate.full_name, ...match });
+      results.push({
+        workerId: candidate.worker_id,
+        fullName: candidate.full_name,
+        pointsLevel: levelByWorker.get(candidate.worker_id) ?? 0,
+        badges: (badgesByWorker.get(candidate.worker_id) ?? []).map((b) => b.badge_key),
+        ...match,
+      });
     }
   }
 
@@ -135,6 +182,7 @@ export async function getMatchedJobsForWorker(workerId: string): Promise<Matched
 
   const requirementsByJob = groupBy(requirementRows ?? [], (r) => r.job_id);
   const workerSkillIds = (skillRows ?? []).map((s) => s.skill_id);
+  const workerLevel = (await getPointsLevelsByWorker(supabase, [workerId])).get(workerId) ?? 0;
   const availability: AvailabilitySlot[] = (availabilityRows ?? []).map((a) => ({
     dayOfWeek: a.day_of_week,
     startTime: a.start_time,
@@ -161,6 +209,7 @@ export async function getMatchedJobsForWorker(workerId: string): Promise<Matched
         skillIds: workerSkillIds,
         reliabilityScore: profile.reliability_score,
         availability,
+        pointsLevel: workerLevel,
       }
     );
 

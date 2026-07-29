@@ -172,3 +172,41 @@ describe("computeMatch — BlinkNow (urgency boost, PRD sez. 11.4: 'limitato e r
     expect(computeMatch(BLINKNOW_JOB, baseWorker({ skillIds: [SKILL_B] }))).toBeNull();
   });
 });
+
+describe("computeMatch — BlinkPoints level (non-monetary reward, PTS-002/003)", () => {
+  it("gives a higher-level worker a small boost over an identical Bronzo (level 0) worker", () => {
+    const bronzo = computeMatch(SATURDAY_JOB, baseWorker({ pointsLevel: 0 }))!;
+    const platino = computeMatch(SATURDAY_JOB, baseWorker({ pointsLevel: 3 }))!;
+    expect(platino.score).toBeGreaterThan(bronzo.score);
+  });
+
+  it("does not touch reliabilityScore/breakdown — PTS-003 'nessun pay-to-rank'", () => {
+    const bronzo = computeMatch(SATURDAY_JOB, baseWorker({ pointsLevel: 0 }))!;
+    const platino = computeMatch(SATURDAY_JOB, baseWorker({ pointsLevel: 3 }))!;
+    expect(platino.breakdown.reliability).toBe(bronzo.breakdown.reliability);
+  });
+
+  it("surfaces the level boost transparently in reasons", () => {
+    const platino = computeMatch(SATURDAY_JOB, baseWorker({ pointsLevel: 3 }))!;
+    expect(platino.reasons.some((r) => r.includes("BlinkPoints"))).toBe(true);
+  });
+
+  it("defaults to no boost when pointsLevel is omitted (Bronzo)", () => {
+    const withoutLevel = computeMatch(SATURDAY_JOB, baseWorker())!;
+    const explicitBronzo = computeMatch(SATURDAY_JOB, baseWorker({ pointsLevel: 0 }))!;
+    expect(withoutLevel.score).toBe(explicitBronzo.score);
+  });
+
+  it("caps the combined BlinkNow + BlinkPoints boost at 100", () => {
+    const nearPerfect = computeMatch(
+      { ...SATURDAY_JOB, urgencyTier: "blinknow" },
+      baseWorker({
+        distanceKm: 0,
+        reliabilityScore: 5,
+        skillIds: [SKILL_A, SKILL_B, SKILL_C],
+        pointsLevel: 3,
+      })
+    )!;
+    expect(nearPerfect.score).toBeLessThanOrEqual(100);
+  });
+});

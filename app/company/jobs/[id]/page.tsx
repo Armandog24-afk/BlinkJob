@@ -11,6 +11,8 @@ import { ApplicationDecisionButtons } from "@/features/applications/components/a
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { formatCents } from "@/lib/utils";
+import { getBadgeInfo, POINTS_LEVELS } from "@/lib/points/levels";
+import { formatWavePriorityLabel } from "@/lib/blinknow/config";
 
 const NAV_ITEMS = [
   { href: "/company/dashboard", label: "Panoramica" },
@@ -50,7 +52,7 @@ export default async function CompanyJobDetailPage({
   const { data: job } = await supabase
     .from("jobs")
     .select(
-      "id, title, description, category, status, positions_count, pay_amount_cents, pay_currency, starts_at, ends_at, application_deadline, company_id, urgency_tier, company_locations(label, address), companies(status)"
+      "id, title, description, category, status, positions_count, pay_amount_cents, pay_currency, starts_at, ends_at, application_deadline, company_id, urgency_tier, blinknow_fee_cents, blinknow_fee_status, blinknow_response_deadline, company_locations(label, address), companies(status)"
     )
     .eq("id", id)
     .single();
@@ -67,21 +69,29 @@ export default async function CompanyJobDetailPage({
     ? job.company_locations[0]
     : job.company_locations;
 
-  const [{ data: requirements }, candidates, { data: applications }, { count: confirmedCount }] =
-    await Promise.all([
-      supabase.from("job_requirements").select("mandatory, skill_taxonomy(name)").eq("job_id", job.id),
-      job.status === "published" ? getCandidatesForJob(job.id) : Promise.resolve([]),
-      supabase
-        .from("applications")
-        .select("id, worker_id, type, status, worker_profiles(user_id, users(full_name))")
-        .eq("job_id", job.id)
-        .order("created_at", { ascending: false }),
-      supabase
-        .from("assignments")
-        .select("id", { count: "exact", head: true })
-        .eq("job_id", job.id)
-        .neq("status", "canceled"),
-    ]);
+  const [
+    { data: requirements },
+    candidates,
+    { data: applications },
+    { count: confirmedCount },
+    waveStats,
+  ] = await Promise.all([
+    supabase.from("job_requirements").select("mandatory, skill_taxonomy(name)").eq("job_id", job.id),
+    job.status === "published" ? getCandidatesForJob(job.id) : Promise.resolve([]),
+    supabase
+      .from("applications")
+      .select("id, worker_id, type, status, worker_profiles(user_id, users(full_name))")
+      .eq("job_id", job.id)
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("assignments")
+      .select("id", { count: "exact", head: true })
+      .eq("job_id", job.id)
+      .neq("status", "canceled"),
+    job.urgency_tier === "blinknow"
+      ? supabase.rpc("blinknow_wave_stats", { p_job_id: job.id })
+      : Promise.resolve({ data: null }),
+  ]);
 
   const appliedWorkerIds = new Set((applications ?? []).map((a) => a.worker_id));
   const positionsFilled = (confirmedCount ?? 0) >= job.positions_count;
@@ -105,6 +115,40 @@ export default async function CompanyJobDetailPage({
             <BlinkNowToggle jobId={job.id} urgencyTier={job.urgency_tier} eligible={blinknowEligible} />
           )}
         </div>
+
+        {job.urgency_tier === "blinknow" && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">BlinkNow</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2 text-sm text-muted-foreground">
+              <p>
+                Fee: {job.blinknow_fee_cents != null ? formatCents(job.blinknow_fee_cents, "EUR") : "—"} ·{" "}
+                {job.blinknow_fee_status === "refunded" ? "rimborsata" : "addebitata (ledger tracciato)"}
+              </p>
+              {job.blinknow_response_deadline && (
+                <p>
+                  {new Date(job.blinknow_response_deadline) > new Date()
+                    ? `Finestra di risposta fino al ${new Date(job.blinknow_response_deadline).toLocaleString("it-IT")}`
+                    : "Finestra di risposta scaduta"}
+                </p>
+              )}
+              {waveStats?.data && waveStats.data.length > 0 && (
+                <div className="pt-1">
+                  <p className="font-medium text-foreground">Ondate di notifica</p>
+                  <ul className="mt-1 list-inside list-disc">
+                    {waveStats.data.map((w) => (
+                      <li key={w.wave_number}>
+                        Ondata {w.wave_number} ({formatWavePriorityLabel(w.wave_number)}):{" "}
+                        {w.notified_count} notificati, {w.applied_count} candidature
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
 
         <Card>
           <CardHeader>
@@ -198,6 +242,20 @@ export default async function CompanyJobDetailPage({
                       <p className="font-medium">{c.fullName}</p>
                       <Badge>{c.score.toFixed(0)}% compatibile</Badge>
                     </div>
+                    {(c.pointsLevel > 0 || c.badges.length > 0) && (
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {c.pointsLevel > 0 && (
+                          <Badge variant="secondary">
+                            Livello {POINTS_LEVELS.find((l) => l.level === c.pointsLevel)?.name}
+                          </Badge>
+                        )}
+                        {c.badges.map((key) => (
+                          <Badge key={key} variant="outline">
+                            {getBadgeInfo(key).label}
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
                     <ul className="mt-1 list-inside list-disc text-xs text-muted-foreground">
                       {c.reasons.map((reason, i) => (
                         <li key={i}>{reason}</li>

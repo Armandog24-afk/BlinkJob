@@ -18,6 +18,7 @@ export type JobStatus =
   | "canceled"
   | "expired";
 export type UrgencyTier = "standard" | "blinknow";
+export type BlinknowFeeStatus = "none" | "pending" | "refunded";
 export type ApplicationType = "application" | "invite";
 export type ApplicationStatus =
   | "sent"
@@ -284,6 +285,9 @@ export interface Database {
           status: JobStatus;
           version: number;
           urgency_tier: UrgencyTier;
+          blinknow_fee_cents: number | null;
+          blinknow_fee_status: BlinknowFeeStatus;
+          blinknow_response_deadline: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -304,6 +308,9 @@ export interface Database {
           status?: JobStatus;
           version?: number;
           urgency_tier?: UrgencyTier;
+          blinknow_fee_cents?: number | null;
+          blinknow_fee_status?: BlinknowFeeStatus;
+          blinknow_response_deadline?: string | null;
         };
         Update: Partial<Database["public"]["Tables"]["jobs"]["Insert"]>;
         Relationships: [
@@ -656,6 +663,30 @@ export interface Database {
         Update: never;
         Relationships: [];
       };
+      worker_badges: {
+        Row: {
+          id: string;
+          worker_id: string;
+          badge_key: string;
+          awarded_at: string;
+        };
+        Insert: {
+          id?: string;
+          worker_id: string;
+          badge_key: string;
+          awarded_at?: string;
+        };
+        Update: never;
+        Relationships: [
+          {
+            foreignKeyName: "worker_badges_worker_id_fkey";
+            columns: ["worker_id"];
+            isOneToOne: false;
+            referencedRelation: "worker_profiles";
+            referencedColumns: ["user_id"];
+          },
+        ];
+      };
     };
     Views: Record<string, never>;
     Functions: {
@@ -748,6 +779,26 @@ export interface Database {
       };
       admin_adjust_points: {
         Args: { p_user_id: string; p_points: number; p_reason: string };
+        Returns: undefined;
+      };
+      calculate_blinknow_fee_cents: {
+        Args: Record<string, never>;
+        Returns: number;
+      };
+      worker_points_level: {
+        Args: { p_user_id: string };
+        Returns: number;
+      };
+      blinknow_wave_stats: {
+        Args: { p_job_id: string };
+        Returns: { wave_number: number; notified_count: number; applied_count: number }[];
+      };
+      process_blinknow_refunds: {
+        Args: Record<string, never>;
+        Returns: { job_id: string; refunded_cents: number | null }[];
+      };
+      award_badge: {
+        Args: { p_user_id: string; p_badge_key: string };
         Returns: undefined;
       };
     };

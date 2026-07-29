@@ -29,6 +29,7 @@ export function ActionButton({
         </Button>
       </form>
       {state.error && <p className="text-xs text-destructive">{state.error}</p>}
+      {state.message && <p className="text-xs text-muted-foreground">{state.message}</p>}
     </div>
   );
 }

@@ -223,7 +223,7 @@ Codice pubblicato su GitHub (`github.com/Armandog24-afk/BlinkJob`, commit inizia
 - UI: card "BlinkPoints" su `/worker/profile` (ledger leggibile, totale) e form "Rettifica punti" su `/admin/users`, entrambe visibili solo con il flag attivo.
 
 **Semplificazioni MVP documentate direttamente nella migration (non dimenticanze):**
-- PTS-002 ("livelli e badge configurabili, regole versionate"): valori punti hardcoded (stesso pattern di `calculate_platform_fee_cents`, non una tabella di config editabile — costruirla ora sarebbe prematuro per una simulazione di pilot).
+- PTS-002 ("livelli e badge configurabili, regole versionate"): valori punti hardcoded (stesso pattern di `calculate_platform_fee_cents`, non una tabella di config editabile — costruirla ora sarebbe prematuro per una simulazione di pilot). **Aggiornamento M17**: livelli e badge veri e propri sono stati poi costruiti — vedi sezione M17 più sotto.
 - "Conferma disponibilità aggiornata → punti periodici": non implementata perché nell'MVP attuale non esiste alcun flusso per modificare la disponibilità dopo l'onboarding iniziale (gap indipendente, fuori perimetro di questa milestone).
 - PTS-004 (revoca per abuso): decisione umana via `admin_adjust_points` invece di una regola automatica legata alle dispute — `resolve_dispute` accetta solo una nota libera, non un esito strutturato da cui derivare in modo affidabile una revoca automatica.
 - PTS-003 (nessun pay-to-rank): soddisfatto per costruzione — `points_ledger` non è mai letto da `reliability_score` (derivato solo dalle recensioni, 019) e nessun flusso di acquisto esiste in questo MVP.
@@ -238,3 +238,50 @@ Codice pubblicato su GitHub (`github.com/Armandog24-afk/BlinkJob`, commit inizia
 ## M15 — Blink Assistant (feature "could have", richiede provider AI esterno)
 
 In corso — richiede una decisione del founder su quale provider AI usare prima di procedere (nessun servizio LLM esterno collegato al progetto finora).
+
+## M16 — BlinkNow, arricchimento completo (PRD sez. 9.1, requisiti BNW-001..006)
+
+**Richiesta dall'utente il 2026-07-29**, dopo una valutazione a tutto campo di cosa mancherebbe per portare il progetto dall'MVP al 100% del PRD (`docs/FULL_SCOPE_ASSESSMENT.md`): arricchire BlinkNow oltre il meccanismo minimo di M13.
+
+**Cosa è stato costruito (migration 025):**
+- BNW-001: `calculate_blinknow_fee_cents()` (v1 flat, 15,00 €) e `set_job_blinknow` ridefinita per addebitare la fee e calcolare una finestra di risposta (`blinknow_response_deadline = least(starts_at, now() + 6h)`) contestualmente all'attivazione — mostrati in UI **prima** del click, non solo dopo.
+- BNW-002: `notify_on_blinknow_job_published` ridefinita per calcolare bande di distanza assolute (5/15/30 km) e taggare ogni notifica con un numero d'ondata nel payload; `blinknow_wave_stats(job_id)` espone destinatari/conversioni per ondata (conversione = candidatura con `created_at` successivo alla notifica, calcolata a posteriori via join, nessuna tabella aggiuntiva).
+- BNW-004: `cancel_assignment` ridefinita per invitare automaticamente il prossimo candidato geo-idoneo (per distanza, non per punteggio completo — il ranking pieno resta in TypeScript) quando un assignment BlinkNow viene cancellato prima della scadenza e restano posizioni scoperte. Automatizza solo "chi è il prossimo", non la conferma finale (resta un'accettazione/conferma umana).
+- BNW-006: `process_blinknow_refunds()` (RPC admin-only) rimborsa la fee per incarichi scaduti senza copertura — invocabile dal pannello, non un vero cron (nessuno scheduler in background in questo stack).
+- BNW-005: `/admin/blinknow`, nuovo pannello operativo con elenco incarichi urgenti, stato fee/scadenza, copertura posizioni e pulsante "Verifica rimborsi scaduti".
+- UI azienda: `BlinkNowToggle` mostra la fee prima dell'attivazione; card "BlinkNow" sulla pagina incarico con fee/stato/scadenza/statistiche per ondata.
+
+**Semplificazioni MVP documentate nella migration (non dimenticanze):** ondate calcolate e notificate tutte insieme alla pubblicazione invece che scaglionate nel tempo (nessuno scheduler disponibile — il PRD richiede solo che ogni ondata *registri* raggio/destinatari/conversioni, non che sia temporalmente distribuita); candidato successivo per lista d'attesa scelto per distanza, non per punteggio completo; fee flat v1 senza variazione per città/categoria (pricing reale non ancora deciso dal founder).
+
+**Verifica eseguita (browser, flusso reale completo, dopo un riavvio pulito del dev server — vedi nota sotto):**
+- `npx tsc --noEmit`, `npm run lint`, `npm test` (35 unitari) puliti.
+- Creato un incarico, attivato BlinkNow (fee 15,00 € mostrata prima del click, confermata dopo), pubblicato → card "Ondate di notifica" mostra "Ondata 1 (priorità massima): 1 notificati, 0 candidature" per il lavoratore opt-in → pannello admin `/admin/blinknow` mostra correttamente fee/copertura; pulsante "Verifica rimborsi scaduti" eseguito con esito "Nessun rimborso dovuto" (corretto, l'unico altro incarico BlinkNow esistente aveva `blinknow_fee_status='none'`, precedente all'introduzione delle colonne fee).
+- **Incidente scoperto durante la verifica**: un vecchio processo `next dev` orfano di una fase precedente della sessione era rimasto in ascolto sulla porta 3000, causando una corruzione della cache Turbopack (doppio scrittore su `.next`, stesso rischio già documentato in memoria di progetto) che si manifestava come 404 su rotte esistenti (`/login`). Risolto terminando il processo orfano e ripulendo `.next` — non un problema del codice applicativo.
+
+## M17 — BlinkPoints, livelli e badge non monetari (PRD PTS-002)
+
+**Richiesta dall'utente il 2026-07-29** insieme a M16, con una precisazione esplicita raccolta prima di costruire: le ricompense dovevano restare **non monetarie** (priorità/visibilità, non un marketplace di sconti/cash-out reale) — PTS-005 resta esplicitamente rimandato dal PRD "solo dopo analisi fiscale e antifrode", non toccato qui.
+
+**Cosa è stato costruito (migration 026):**
+- `worker_badges` (append-only, stesso principio di `points_ledger`): un catalogo di badge guadagnati, distinto dalla cronologia punti. Badge implementati: profilo completo, prima recensione ricevuta, 10 incarichi completati, affidabilità 5 stelle (≥3 recensioni), livelli Argento/Oro/Platino.
+- `worker_points_level(user_id)`: livello dedotto dal totale punti (soglie v1: 100/300/600), tenuto allineato a mano con `lib/points/levels.ts` (stesso pattern di `calculate_platform_fee_cents`/`lib/payments/fees.ts`).
+- Matching engine: piccolo boost aggiuntivo per livello (+1/+2/+3, sempre più piccolo del boost BlinkNow), mai sul `reliability_score` (PTS-003 "nessun pay-to-rank" resta rispettato per costruzione — guadagnato con azioni verificate, non acquistabile).
+- Integrazione con BlinkNow (025): i lavoratori con livello più alto vengono promossi a un'ondata di notifica precedente rispetto alla sola distanza — la prima vera ricompensa "di priorità" richiesta dall'utente.
+- UI: card "Badge" e indicatore di livello su `/worker/profile`; livello e badge del candidato mostrati anche all'azienda nella lista candidati (segnale di fiducia, stesso perimetro di visibilità di `worker_profiles_company_read`).
+
+**Bug reale trovato e corretto durante la verifica:** la policy RLS `points_ledger_owner_read` (021) permette solo la lettura dei propri punti — senza una policy aggiuntiva, il calcolo del livello lato azienda (per il boost/candidati) avrebbe sempre restituito 0 per qualunque candidato. Aggiunta `points_ledger_company_read_via_candidate`, stesso schema di `worker_badges_company_read_via_candidate`.
+
+**Verifica eseguita (browser, flusso reale completo):**
+- Rettificati temporaneamente 250 punti a un lavoratore reale dalla console admin → card candidati sull'incarico BlinkNow mostra correttamente "Livello Argento" (badge di livello), il tag del badge permanente "Livello Argento" guadagnato, e il motivo "livello BlinkPoints Argento: priorità (+1 punti)" nel punteggio di match — badge e punti poi ripristinati (storno di -250; il badge guadagnato resta per design, coerente con l'immutabilità del ledger).
+- Confermato che badge e boost di livello sono correttamente disgiunti da `reliability_score` (mai modificato da questa migration).
+
+## Sicurezza — correzioni da Supabase Security Advisor (migration 027)
+
+**Richiesta dall'utente il 2026-07-29** (link al pannello Advisor del progetto Supabase — nessun accesso autenticato disponibile a questo agente, controllo eseguito leggendo tutte le migration).
+
+**Tre problemi reali trovati e corretti:**
+1. `skill_taxonomy` non aveva mai avuto RLS abilitata (unica tabella dimenticata da 006) — aggiunta lettura pubblica + scrittura solo staff, stesso schema di `feature_flags`.
+2. `uuid-ossp`, `postgis`, `pgcrypto` installate nello schema `public` invece che in uno schema dedicato. **PostGIS non supporta lo spostamento in questo ambiente** (Postgres: "extension postgis does not support SET SCHEMA", estensione marcata non rilocabile) — spostarla davvero richiederebbe drop/recreate con perdita a cascata di ogni colonna geography/geometry esistente, sproporzionato per un avviso di postura. Rischio accettato e documentato per PostGIS; `uuid-ossp`/`pgcrypto` invece spostate con successo.
+3. Tre funzioni fondamentali di 006 (`current_user_role`, `is_company_member`, `is_admin_or_support`) non avevano mai avuto `search_path` fissato — sfuggite ai controlli precedenti (M10) perché scritte in uno stile compatto diverso dal resto delle migration. Le prime due sono SECURITY DEFINER: un search_path non fissato è un vettore reale di privilege escalation.
+
+**Verifica eseguita:** `skill_taxonomy` ora nega la scrittura non-admin (`42501`) ma resta leggibile; le RPC che usano PostGIS (`candidate_jobs_for_worker`, ecc.) continuano a funzionare correttamente dopo lo spostamento di `uuid-ossp`/`pgcrypto` e l'aggiornamento dei `search_path` di ogni funzione esistente (fatto con un blocco dinamico su `pg_proc`, non elencando ~30 firme a mano).
