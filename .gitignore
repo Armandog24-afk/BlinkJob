@@ -43,3 +43,6 @@ next-env.d.ts
 # claude code local settings (machine-specific, not project config)
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
+
+.vercel
+.env*

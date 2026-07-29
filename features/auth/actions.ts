@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getSiteURL } from "@/lib/utils";
+import { REGISTRATION_ENABLED } from "@/lib/config";
 import {
   forgotPasswordSchema,
   loginSchema,
@@ -38,6 +39,10 @@ export async function registerAction(
   _prevState: ActionState,
   formData: FormData
 ): Promise<ActionState> {
+  if (!REGISTRATION_ENABLED) {
+    return { error: "La registrazione è temporaneamente sospesa." };
+  }
+
   const parsed = registerSchema.safeParse({
     accountKind: formData.get("accountKind"),
     fullName: formData.get("fullName"),

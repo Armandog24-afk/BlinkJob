@@ -1,5 +1,11 @@
 # CHANGELOG — BlinkJob
 
+## Deploy demo (2026-07-29) e sospensione temporanea della registrazione
+
+Progetto pubblicato su Vercel (https://blinkjob.vercel.app), collegato al progetto Supabase reale usato per tutto lo sviluppo, per una demo condivisibile. Deploy diretto da CLI locale (GitHub non collegato all'account Vercel dell'utente — nessun OAuth GitHub configurato), variabili d'ambiente Supabase impostate su Vercel per production/preview.
+
+**Registrazione self-service disattivata su richiesta** dopo una segnalazione di malfunzionamento nel demo pubblico. Controllati i log Vercel (`vercel logs`): nessun errore server-side loggato né su `/register` né su `/worker/onboarding` — il problema segnalato sembra più una frizione percepita nell'onboarding (submit multipli ravvicinati in log) che un crash reale, ma non essendone certi si è disattivato l'ingresso self-service per non bloccare l'accesso al resto della demo. `lib/config.ts` (`REGISTRATION_ENABLED = false`) gate la pagina `/register`, il link "Registrati" nel login e la server action `registerAction` stessa (difesa in profondità, non solo nascosto in UI). Reversibile con un solo flag una volta chiarita la causa. Demo utilizzabile con gli account seed esistenti (lavoratore, azienda, admin).
+
 Riepilogo delle modifiche per milestone, secondo la regola di FASE 10 ("dopo ogni fase: verifica, correggi, aggiorna documentazione, riepiloga").
 
 ## M1 — Fondazioni (completata)

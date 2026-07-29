@@ -6,6 +6,7 @@ import { loginAction, type ActionState } from "@/features/auth/actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { REGISTRATION_ENABLED } from "@/lib/config";
 
 const initialState: ActionState = {};
 
@@ -46,12 +47,14 @@ export function LoginForm({ redirectTo }: { redirectTo?: string }) {
         {pending ? "Accesso in corso..." : "Accedi"}
       </Button>
 
-      <p className="text-center text-sm text-muted-foreground">
-        Non hai un account?{" "}
-        <Link href="/register" className="text-primary underline underline-offset-4">
-          Registrati
-        </Link>
-      </p>
+      {REGISTRATION_ENABLED && (
+        <p className="text-center text-sm text-muted-foreground">
+          Non hai un account?{" "}
+          <Link href="/register" className="text-primary underline underline-offset-4">
+            Registrati
+          </Link>
+        </p>
+      )}
     </form>
   );
 }
