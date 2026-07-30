@@ -1,5 +1,26 @@
 # CHANGELOG — BlinkJob
 
+## M23 — SSO Google (2026-07-30)
+
+Bottone "Continua con Google" su login e registrazione (`features/auth/components/
+google-signin-button.tsx`), via `supabase.auth.signInWithOAuth`. `/auth/callback` (già generico,
+usato per la conferma email) gestisce anche il codice OAuth senza modifiche — solo aggiunta la
+registrazione dell'accettazione Termini/Privacy, che il flusso email/password fa in `registerAction`
+ma un login OAuth bypassa del tutto:
+- Nella pagina di registrazione il bottone Google resta disabilitato finché il checkbox Termini
+  non è spuntato, e passa `acceptedTerms=1` nel redirect.
+- Caso limite (bottone Google usato dalla pagina di **login**, senza checkbox): se risulta un
+  account nuovo senza nessuna accettazione registrata, `/auth/callback` reindirizza a una
+  interstiziale (`/register/accept-terms`) prima di proseguire.
+- Il ruolo di un account creato via Google è sempre `worker` (default del trigger `handle_new_user`,
+  007) — non esiste un modo per comunicare "sono un'azienda" durante un redirect OAuth senza far
+  ripassare l'utente da un form; le aziende continuano a registrarsi con email/password.
+
+**Richiede configurazione esterna** (non automatizzabile da qui): creare un OAuth Client ID su
+Google Cloud Console e abilitare il provider Google nel dashboard Supabase. Verificato in
+produzione che il codice fa esattamente il previsto: redirect a Supabase con `acceptedTerms=1` in
+coda, errore pulito (`provider is not enabled`) finché il provider non è configurato.
+
 ## M27 — Missioni con reward BlinkPoints (2026-07-30)
 
 `database/migrations/035_missions.sql`: nuova tabella `mission_completions` e RPC

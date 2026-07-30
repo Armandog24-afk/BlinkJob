@@ -6,6 +6,7 @@ import { loginAction, type ActionState } from "@/features/auth/actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { GoogleSigninButton } from "@/features/auth/components/google-signin-button";
 import { REGISTRATION_ENABLED } from "@/lib/config";
 
 const initialState: ActionState = {};
@@ -46,6 +47,12 @@ export function LoginForm({ redirectTo }: { redirectTo?: string }) {
       <Button type="submit" className="w-full" disabled={pending}>
         {pending ? "Accesso in corso..." : "Accedi"}
       </Button>
+
+      <div className="relative py-1 text-center text-xs text-muted-foreground">
+        <span className="relative bg-background px-2">oppure</span>
+        <div className="absolute inset-x-0 top-1/2 -z-10 border-t" />
+      </div>
+      <GoogleSigninButton />
 
       {REGISTRATION_ENABLED && (
         <p className="text-center text-sm text-muted-foreground">

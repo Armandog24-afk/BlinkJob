@@ -3,6 +3,7 @@
 import { useActionState, useState } from "react";
 import Link from "next/link";
 import { registerAction, type ActionState } from "@/features/auth/actions";
+import { GoogleSigninButton } from "@/features/auth/components/google-signin-button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -15,6 +16,7 @@ const initialState: ActionState = {};
 export function RegisterForm({ defaultKind = "worker" }: { defaultKind?: AccountKind }) {
   const [state, formAction, pending] = useActionState(registerAction, initialState);
   const [accountKind, setAccountKind] = useState<AccountKind>(defaultKind);
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
 
   return (
     <form action={formAction} className="space-y-4">
@@ -57,7 +59,13 @@ export function RegisterForm({ defaultKind = "worker" }: { defaultKind?: Account
       </div>
 
       <div className="flex items-start gap-2">
-        <Checkbox id="acceptedTerms" name="acceptedTerms" required />
+        <Checkbox
+          id="acceptedTerms"
+          name="acceptedTerms"
+          required
+          checked={acceptedTerms}
+          onCheckedChange={(v) => setAcceptedTerms(v === true)}
+        />
         <Label htmlFor="acceptedTerms" className="text-sm font-normal text-muted-foreground">
           Accetto i{" "}
           <Link href="/legal/terms_of_service" target="_blank" className="text-primary underline underline-offset-4">
@@ -80,6 +88,21 @@ export function RegisterForm({ defaultKind = "worker" }: { defaultKind?: Account
             ? "Crea account azienda"
             : "Crea account lavoratore"}
       </Button>
+
+      {accountKind === "worker" && (
+        <>
+          <div className="relative py-1 text-center text-xs text-muted-foreground">
+            <span className="relative bg-background px-2">oppure</span>
+            <div className="absolute inset-x-0 top-1/2 -z-10 border-t" />
+          </div>
+          <GoogleSigninButton disabled={!acceptedTerms} acceptedTerms={acceptedTerms} />
+          {!acceptedTerms && (
+            <p className="text-center text-xs text-muted-foreground">
+              Accetta prima Termini e Privacy per continuare con Google.
+            </p>
+          )}
+        </>
+      )}
 
       <p className="text-center text-sm text-muted-foreground">
         Hai già un account?{" "}

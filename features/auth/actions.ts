@@ -27,7 +27,7 @@ const ROLE_HOME: Record<UserRole, string> = {
   admin: "/admin/dashboard",
 };
 
-async function recordTermsAcceptance(userId: string): Promise<void> {
+export async function recordTermsAcceptance(userId: string): Promise<void> {
   const admin = createAdminClient();
   const hdrs = await headers();
   const ipAddress = hdrs.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null;
@@ -210,6 +210,26 @@ export async function updatePasswordAction(
     .single();
 
   redirect(profile ? ROLE_HOME[profile.role] : "/login");
+}
+
+export async function acceptTermsAndContinueAction(
+  _prevState: ActionState,
+  formData: FormData
+): Promise<ActionState> {
+  if (formData.get("acceptedTerms") !== "on") {
+    return { error: "Devi accettare i Termini di Servizio e l'Informativa Privacy per continuare." };
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+
+  await recordTermsAcceptance(user.id);
+
+  const { data: profile } = await supabase.from("users").select("role").eq("id", user.id).single();
+  redirect(profile ? ROLE_HOME[profile.role] : "/");
 }
 
 export async function logoutAction() {
