@@ -14,6 +14,7 @@ const NAV_ITEMS = [
   { href: "/admin/jobs", label: "Incarichi" },
   { href: "/admin/blinknow", label: "BlinkNow" },
   { href: "/admin/disputes", label: "Dispute" },
+  { href: "/admin/documents", label: "Documenti" },
 ];
 
 const STATUS_VARIANT: Record<string, "success" | "secondary" | "destructive"> = {

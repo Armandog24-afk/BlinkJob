@@ -1,5 +1,21 @@
 # CHANGELOG — BlinkJob
 
+## M25 — Archivio documenti con accettazione tracciata (2026-07-30)
+
+`database/migrations/033_document_archive.sql`: `document_templates` (versionati per chiave,
+lettura pubblica come `skill_taxonomy`, scrittura solo staff) e `document_acceptances`
+(append-only, evidenza timestamp+IP+user agent). Il checkbox "Accetto i Termini di Servizio e
+l'Informativa Privacy" già esistente in `registerAction` veniva validato e poi scartato — ora
+`registerAction` registra davvero l'accettazione (via service-role client, perché al momento della
+scrittura l'utente non ha ancora una sessione se serve conferma email; l'IP viene letto
+dall'header `x-forwarded-for` della richiesta stessa, zero vendor esterni). Nuove pagine pubbliche
+`/legal/[key]` (linkate dal checkbox di registrazione) e `/admin/documents` (versioni pubblicate +
+conteggio accettazioni per versione, con form per pubblicarne una nuova). **Limite documentato**:
+il testo dei due documenti seed è una bozza operativa, non il contenuto legale reale (categoria 3
+di `docs/FULL_SCOPE_ASSESSMENT.md` — serve un legale/DPO prima del lancio). Verificato in
+produzione: registrazione end-to-end di un nuovo account senza errori, pagine legali renderizzate
+correttamente.
+
 ## M24 — Centro notifiche: quiet hours e dedup (2026-07-30)
 
 `database/migrations/032_notification_preferences.sql`: nuova tabella `notification_preferences`

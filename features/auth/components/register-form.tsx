@@ -59,7 +59,15 @@ export function RegisterForm({ defaultKind = "worker" }: { defaultKind?: Account
       <div className="flex items-start gap-2">
         <Checkbox id="acceptedTerms" name="acceptedTerms" required />
         <Label htmlFor="acceptedTerms" className="text-sm font-normal text-muted-foreground">
-          Accetto i Termini di Servizio e l&apos;Informativa Privacy.
+          Accetto i{" "}
+          <Link href="/legal/terms_of_service" target="_blank" className="text-primary underline underline-offset-4">
+            Termini di Servizio
+          </Link>{" "}
+          e l&apos;
+          <Link href="/legal/privacy_policy" target="_blank" className="text-primary underline underline-offset-4">
+            Informativa Privacy
+          </Link>
+          .
         </Label>
       </div>
 

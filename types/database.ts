@@ -104,6 +104,59 @@ export interface Database {
           },
         ];
       };
+      document_templates: {
+        Row: {
+          id: string;
+          scope: "platform" | "assignment";
+          key: string;
+          title: string;
+          body: string;
+          version: number;
+          created_by: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          scope: "platform" | "assignment";
+          key: string;
+          title: string;
+          body: string;
+          version?: number;
+          created_by?: string | null;
+        };
+        Update: Partial<Database["public"]["Tables"]["document_templates"]["Insert"]>;
+        Relationships: [];
+      };
+      document_acceptances: {
+        Row: {
+          id: string;
+          document_template_id: string;
+          user_id: string;
+          context_id: string | null;
+          accepted_at: string;
+          ip_address: string | null;
+          user_agent: string | null;
+        };
+        Insert: {
+          id?: string;
+          document_template_id: string;
+          user_id: string;
+          context_id?: string | null;
+          accepted_at?: string;
+          ip_address?: string | null;
+          user_agent?: string | null;
+        };
+        Update: never;
+        Relationships: [
+          {
+            foreignKeyName: "document_acceptances_document_template_id_fkey";
+            columns: ["document_template_id"];
+            isOneToOne: false;
+            referencedRelation: "document_templates";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       skill_taxonomy: {
         Row: {
           id: string;

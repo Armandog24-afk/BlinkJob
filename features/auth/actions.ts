@@ -1,7 +1,9 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { getSiteURL } from "@/lib/utils";
 import { REGISTRATION_ENABLED } from "@/lib/config";
 import {
@@ -24,6 +26,39 @@ const ROLE_HOME: Record<UserRole, string> = {
   support: "/admin/dashboard",
   admin: "/admin/dashboard",
 };
+
+async function recordTermsAcceptance(userId: string): Promise<void> {
+  const admin = createAdminClient();
+  const hdrs = await headers();
+  const ipAddress = hdrs.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null;
+  const userAgent = hdrs.get("user-agent");
+
+  const { data: documents } = await admin
+    .from("document_templates")
+    .select("id, key, version")
+    .eq("scope", "platform")
+    .in("key", ["terms_of_service", "privacy_policy"])
+    .order("version", { ascending: false });
+
+  const currentByKey = new Map<string, string>();
+  for (const doc of documents ?? []) {
+    if (!currentByKey.has(doc.key)) currentByKey.set(doc.key, doc.id);
+  }
+
+  const rows = Array.from(currentByKey.values()).map((documentTemplateId) => ({
+    document_template_id: documentTemplateId,
+    user_id: userId,
+    ip_address: ipAddress,
+    user_agent: userAgent,
+  }));
+
+  if (rows.length === 0) return;
+
+  const { error } = await admin.from("document_acceptances").insert(rows);
+  if (error) {
+    console.error("[recordTermsAcceptance] insert error:", error);
+  }
+}
 
 function mapAuthError(message: string): string {
   const known: Record<string, string> = {
@@ -71,6 +106,10 @@ export async function registerAction(
   if (error) {
     console.error("[registerAction] supabase.auth.signUp error:", error);
     return { error: mapAuthError(error.message) };
+  }
+
+  if (data.user) {
+    await recordTermsAcceptance(data.user.id);
   }
 
   if (data.session) {

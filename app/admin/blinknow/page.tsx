@@ -15,6 +15,7 @@ const NAV_ITEMS = [
   { href: "/admin/jobs", label: "Incarichi" },
   { href: "/admin/blinknow", label: "BlinkNow" },
   { href: "/admin/disputes", label: "Dispute" },
+  { href: "/admin/documents", label: "Documenti" },
 ];
 
 const FEE_STATUS_LABEL: Record<string, string> = {

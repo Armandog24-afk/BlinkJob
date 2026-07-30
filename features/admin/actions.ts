@@ -105,6 +105,60 @@ export async function processBlinknowRefundsAction(): Promise<ActionState> {
   return count > 0 ? { message: `${count} incarico/i rimborsato/i.` } : { message: "Nessun rimborso dovuto." };
 }
 
+export async function createDocumentVersionAction(
+  _prevState: ActionState,
+  formData: FormData
+): Promise<ActionState> {
+  const scope = formData.get("scope");
+  const key = formData.get("key");
+  const title = formData.get("title");
+  const body = formData.get("body");
+
+  if (
+    (scope !== "platform" && scope !== "assignment") ||
+    typeof key !== "string" ||
+    !key.trim() ||
+    typeof title !== "string" ||
+    !title.trim() ||
+    typeof body !== "string" ||
+    !body.trim()
+  ) {
+    return { error: "Compila tutti i campi." };
+  }
+
+  const supabase = await requireUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const { data: existing } = await supabase
+    .from("document_templates")
+    .select("version")
+    .eq("scope", scope)
+    .eq("key", key.trim())
+    .order("version", { ascending: false })
+    .limit(1);
+
+  const nextVersion = (existing?.[0]?.version ?? 0) + 1;
+
+  const { error } = await supabase.from("document_templates").insert({
+    scope,
+    key: key.trim(),
+    title: title.trim(),
+    body: body.trim(),
+    version: nextVersion,
+    created_by: user?.id ?? null,
+  });
+
+  if (error) {
+    console.error("[createDocumentVersionAction] insert error:", error);
+    return { error: "Impossibile salvare la nuova versione." };
+  }
+
+  revalidatePath("/admin/documents");
+  return { message: `Versione ${nextVersion} pubblicata.` };
+}
+
 export async function resolveDisputeAction(
   _prevState: ActionState,
   formData: FormData
