@@ -13,6 +13,7 @@ const NAV_ITEMS = [
   { href: "/worker/jobs", label: "Incarichi" },
   { href: "/worker/applications", label: "Candidature" },
   { href: "/worker/assignments", label: "I miei incarichi" },
+  { href: "/worker/disputes", label: "Dispute" },
   { href: "/worker/payments", label: "Pagamenti" },
   { href: "/worker/profile", label: "Profilo" },
 ];

@@ -698,6 +698,7 @@ export interface Database {
           type: string;
           status: DisputeStatus;
           resolution: string | null;
+          appeal_reason: string | null;
           economic_impact_cents: number;
           created_at: string;
           updated_at: string;
@@ -709,6 +710,7 @@ export interface Database {
           type: string;
           status?: DisputeStatus;
           resolution?: string | null;
+          appeal_reason?: string | null;
           economic_impact_cents?: number;
         };
         Update: Partial<Database["public"]["Tables"]["disputes"]["Insert"]>;
@@ -993,6 +995,10 @@ export interface Database {
       };
       report_message: {
         Args: { p_message_id: string; p_reason?: string | null };
+        Returns: undefined;
+      };
+      appeal_dispute: {
+        Args: { p_dispute_id: string; p_reason?: string | null };
         Returns: undefined;
       };
     };

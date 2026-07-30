@@ -34,6 +34,12 @@ export function DashboardShell({
                 {userLabel}
               </span>
             )}
+            <Link
+              href="/help"
+              className="hidden text-sm text-muted-foreground transition-colors hover:text-foreground sm:inline"
+            >
+              Aiuto
+            </Link>
             <NotificationsBell />
             <LogoutButton />
           </div>

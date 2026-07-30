@@ -1,5 +1,24 @@
 # CHANGELOG — BlinkJob
 
+## M22 — Help center + appello dispute (2026-07-30)
+
+**Help center** (`/help`, pubblica, collegata con un link "Aiuto" sempre visibile nell'header di
+`DashboardShell`): contenuti reali scritti a mano che descrivono solo funzionalità esistenti
+(matching, candidature, check-in/out QR, pagamenti, recensioni, chat e mascheramento contatti,
+dispute/appello, BlinkNow, BlinkPoints, template/talent pool) — nessuna funzionalità inventata.
+
+**Appello dispute** (`database/migrations/031_dispute_appeal.sql`, PRD sez. 20): l'enum
+`dispute_status` aveva già gli stati `appealed`/`closed` fin dalla 001, mai usati. Nuova RPC
+`appeal_dispute` (una sola volta, solo su una disputa già `resolved`, da worker o azienda
+coinvolti) porta lo stato ad `appealed`; `resolve_dispute` (022) è stata ridefinita per chiudere
+definitivamente (`closed`) quando ri-risolve una disputa in appello invece di rimetterla in
+`resolved` (che riaprirebbe l'appello all'infinito). Nuove pagine `/worker/disputes` e
+`/company/disputes` (prima non esisteva alcuna vista delle proprie dispute per le due parti, solo
+per l'admin) con pulsante "Fai appello" quando risolta; `/admin/disputes` aggiornata per mostrare
+il motivo dell'appello e permettere una nuova risoluzione. Verificato end-to-end in produzione:
+apertura disputa → risoluzione (dato di test preesistente) → appello → stato "In appello" con
+motivo salvato correttamente.
+
 ## M21 — Chat contestuale azienda-lavoratore (2026-07-29)
 
 `database/migrations/030_messaging.sql`: nuove tabelle `conversations` (una per coppia job/worker,

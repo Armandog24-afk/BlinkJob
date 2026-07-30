@@ -35,3 +35,34 @@ export async function openDisputeAction(
   revalidatePath("/company/assignments");
   return {};
 }
+
+export async function appealDisputeAction(
+  _prevState: ActionState,
+  formData: FormData
+): Promise<ActionState> {
+  const disputeId = formData.get("disputeId");
+  const reason = formData.get("reason");
+  if (typeof disputeId !== "string") {
+    return { error: "Disputa non valida." };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("appeal_dispute", {
+    p_dispute_id: disputeId,
+    p_reason: typeof reason === "string" && reason.trim() ? reason.trim() : null,
+  });
+
+  if (error) {
+    console.error("[appealDisputeAction] rpc error:", error);
+    return {
+      error: error.message.includes("già risolta")
+        ? "Puoi fare appello solo su una disputa già risolta."
+        : "Impossibile inviare l'appello. Riprova.",
+    };
+  }
+
+  revalidatePath("/worker/disputes");
+  revalidatePath("/company/disputes");
+  revalidatePath("/admin/disputes");
+  return { message: "Appello inviato. Il team lo esaminerà." };
+}
