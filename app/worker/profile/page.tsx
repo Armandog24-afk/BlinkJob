@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth/session";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { BlinknowPreferenceForm } from "@/features/workers/components/blinknow-preference-form";
+import { ImportCvForm } from "@/features/workers/components/import-cv-form";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -23,7 +24,7 @@ export default async function WorkerProfilePage() {
   if (!user) redirect("/login");
 
   const supabase = await createClient();
-  const [{ data: profile }, { data: blinkpointsFlag }, { data: pointsRows }, { data: badgeRows }] =
+  const [{ data: profile }, { data: blinkpointsFlag }, { data: pointsRows }, { data: badgeRows }, { data: skillRows }] =
     await Promise.all([
       supabase
         .from("worker_profiles")
@@ -45,6 +46,7 @@ export default async function WorkerProfilePage() {
         .select("badge_key, awarded_at")
         .eq("worker_id", user.id)
         .order("awarded_at", { ascending: false }),
+      supabase.from("worker_skills").select("skill_taxonomy(name)").eq("worker_id", user.id),
     ]);
 
   if (!profile) redirect("/worker/onboarding");
@@ -83,6 +85,29 @@ export default async function WorkerProfilePage() {
           </CardHeader>
           <CardContent>
             <BlinknowPreferenceForm optIn={profile.blinknow_opt_in} />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Competenze</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex flex-wrap gap-2">
+              {(skillRows ?? []).length > 0 ? (
+                (skillRows ?? []).map((s, i) => {
+                  const skill = Array.isArray(s.skill_taxonomy) ? s.skill_taxonomy[0] : s.skill_taxonomy;
+                  return (
+                    <Badge key={i} variant="secondary">
+                      {skill?.name}
+                    </Badge>
+                  );
+                })
+              ) : (
+                <p className="text-sm text-muted-foreground">Nessuna competenza salvata ancora.</p>
+              )}
+            </div>
+            <ImportCvForm />
           </CardContent>
         </Card>
 

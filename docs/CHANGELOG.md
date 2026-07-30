@@ -1,5 +1,29 @@
 # CHANGELOG — BlinkJob
 
+## M26 — Matching avanzato: geofencing, incarichi ricorrenti, import CV (2026-07-30)
+
+**Geofencing** (`database/migrations/034_advanced_geofencing.sql`): nuovo campo opzionale
+`jobs.max_distance_km` — un'azienda può restringere ulteriormente (mai allargare) il raggio di
+ricerca oltre quello del lavoratore stesso (es. "solo entro 5 km, niente rimborso trasferta"). Le
+RPC `candidate_workers_for_job`/`candidate_jobs_for_worker` (011) applicano `least()` fra i due
+raggi.
+
+**Incarichi ricorrenti**: nuovi campi "Ripeti" (nessuna/settimanale) e "Numero di occorrenze" nel
+form di creazione incarico. `createJobAction` crea l'incarico principale come prima, poi — se
+ricorrente — genera le occorrenze successive (stessi requisiti, date shiftate di 7 giorni), tutte
+in bozza da pubblicare singolarmente (nessuna pubblicazione automatica).
+
+**Import CV**: nuova sezione "Competenze" nel profilo lavoratore (prima assente — le competenze si
+potevano impostare solo in fase di onboarding, mai più dopo). Import di un file .txt: le
+competenze vengono riconosciute per corrispondenza di parole chiave con `skill_taxonomy` e
+aggiunte automaticamente. **Limite documentato**: euristica per parole chiave, non un'analisi
+linguistica reale; solo .txt (il parsing PDF via libreria valutato e scartato — trascinava una
+dipendenza nativa pesante, `sharp`, sproporzionata al beneficio).
+
+Verificato end-to-end in produzione: creazione di un incarico ricorrente (4 occorrenze settimanali
+generate correttamente), import CV che riconosce e aggiunge 3 nuove competenze senza duplicare
+quelle già presenti.
+
 ## M25 — Archivio documenti con accettazione tracciata (2026-07-30)
 
 `database/migrations/033_document_archive.sql`: `document_templates` (versionati per chiave,

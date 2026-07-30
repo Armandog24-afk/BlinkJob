@@ -341,6 +341,7 @@ export interface Database {
           blinknow_fee_cents: number | null;
           blinknow_fee_status: BlinknowFeeStatus;
           blinknow_response_deadline: string | null;
+          max_distance_km: number | null;
           created_at: string;
           updated_at: string;
         };
@@ -364,6 +365,7 @@ export interface Database {
           blinknow_fee_cents?: number | null;
           blinknow_fee_status?: BlinknowFeeStatus;
           blinknow_response_deadline?: string | null;
+          max_distance_km?: number | null;
         };
         Update: Partial<Database["public"]["Tables"]["jobs"]["Insert"]>;
         Relationships: [

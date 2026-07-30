@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import { createJobAction } from "@/features/jobs/actions";
 import type { ActionState } from "@/features/auth/actions";
 import { Button } from "@/components/ui/button";
@@ -52,6 +52,7 @@ export function JobForm({
   const [state, formAction, pending] = useActionState(createJobAction, initialState);
   const mandatoryDefaults = new Set(defaultValues?.mandatorySkillIds ?? []);
   const preferredDefaults = new Set(defaultValues?.preferredSkillIds ?? []);
+  const [recurrence, setRecurrence] = useState<"none" | "weekly">("none");
 
   return (
     <form action={formAction} className="space-y-8">
@@ -126,6 +127,41 @@ export function JobForm({
             <Input id="applicationDeadline" name="applicationDeadline" type="datetime-local" required />
           </div>
         </div>
+        <div className="space-y-2">
+          <Label htmlFor="maxDistanceKm">Distanza massima candidati (km, opzionale)</Label>
+          <Input id="maxDistanceKm" name="maxDistanceKm" type="number" min={1} step="1" placeholder="Nessun limite oltre al raggio del lavoratore" />
+        </div>
+      </section>
+
+      <section className="space-y-4">
+        <h2 className="text-sm font-semibold text-muted-foreground">Ricorrenza</h2>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-2">
+            <Label>Ripeti</Label>
+            <Select value={recurrence} onValueChange={(v) => v && setRecurrence(v as "none" | "weekly")}>
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Solo questa data</SelectItem>
+                <SelectItem value="weekly">Ogni settimana</SelectItem>
+              </SelectContent>
+            </Select>
+            <input type="hidden" name="recurrence" value={recurrence} />
+          </div>
+          {recurrence === "weekly" && (
+            <div className="space-y-2">
+              <Label htmlFor="occurrences">Numero di occorrenze</Label>
+              <Input id="occurrences" name="occurrences" type="number" min={2} max={12} defaultValue={4} required />
+            </div>
+          )}
+        </div>
+        {recurrence === "weekly" && (
+          <p className="text-xs text-muted-foreground">
+            Verranno creati incarichi separati, uno a settimana, tutti in bozza da pubblicare
+            singolarmente.
+          </p>
+        )}
       </section>
 
       <section className="space-y-4">

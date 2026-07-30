@@ -27,6 +27,9 @@ export async function createJobAction(
     applicationDeadline: formData.get("applicationDeadline"),
     mandatorySkillIds: readSkillIds(formData, "mandatorySkillIds"),
     preferredSkillIds: readSkillIds(formData, "preferredSkillIds"),
+    maxDistanceKm: formData.get("maxDistanceKm") || undefined,
+    recurrence: formData.get("recurrence") || undefined,
+    occurrences: formData.get("occurrences") || undefined,
   });
 
   if (!parsed.success) {
@@ -67,6 +70,7 @@ export async function createJobAction(
       starts_at: parsed.data.startsAt,
       ends_at: parsed.data.endsAt,
       application_deadline: parsed.data.applicationDeadline,
+      max_distance_km: parsed.data.maxDistanceKm ?? null,
       status: "draft",
     })
     .select("id")
@@ -95,6 +99,45 @@ export async function createJobAction(
     if (reqError) {
       console.error("[createJobAction] job_requirements insert error:", reqError);
       return { error: "Incarico creato ma non è stato possibile salvare i requisiti." };
+    }
+  }
+
+  if (parsed.data.recurrence === "weekly" && parsed.data.occurrences) {
+    const addDays = (iso: string, days: number) =>
+      new Date(new Date(iso).getTime() + days * 86400000).toISOString();
+
+    for (let i = 1; i < parsed.data.occurrences; i++) {
+      const offsetDays = i * 7;
+      const { data: occurrenceJob, error: occurrenceError } = await supabase
+        .from("jobs")
+        .insert({
+          company_id: membership.companyId,
+          location_id: parsed.data.locationId,
+          created_by: user.id,
+          title: parsed.data.title,
+          description: parsed.data.description,
+          category: parsed.data.category,
+          positions_count: parsed.data.positionsCount,
+          pay_amount_cents: parsed.data.payAmountCents,
+          starts_at: addDays(parsed.data.startsAt, offsetDays),
+          ends_at: addDays(parsed.data.endsAt, offsetDays),
+          application_deadline: addDays(parsed.data.applicationDeadline, offsetDays),
+          max_distance_km: parsed.data.maxDistanceKm ?? null,
+          status: "draft",
+        })
+        .select("id")
+        .single();
+
+      if (occurrenceError || !occurrenceJob) {
+        console.error("[createJobAction] recurring occurrence insert error:", occurrenceError);
+        continue;
+      }
+
+      if (requirements.length > 0) {
+        await supabase
+          .from("job_requirements")
+          .insert(requirements.map((r) => ({ ...r, job_id: occurrenceJob.id })));
+      }
     }
   }
 

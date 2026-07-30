@@ -19,6 +19,9 @@ export const jobSchema = z
       .refine((v) => !Number.isNaN(Date.parse(v)), "Scadenza candidature non valida"),
     mandatorySkillIds: z.array(uuidLike).default([]),
     preferredSkillIds: z.array(uuidLike).default([]),
+    maxDistanceKm: z.coerce.number().positive().max(500).optional(),
+    recurrence: z.enum(["none", "weekly"]).default("none"),
+    occurrences: z.coerce.number().int().min(2).max(12).optional(),
   })
   .refine((data) => new Date(data.endsAt) > new Date(data.startsAt), {
     message: "L'orario di fine deve essere dopo l'inizio",
@@ -27,5 +30,9 @@ export const jobSchema = z
   .refine((data) => new Date(data.applicationDeadline) <= new Date(data.startsAt), {
     message: "La scadenza candidature deve precedere l'inizio incarico",
     path: ["applicationDeadline"],
+  })
+  .refine((data) => data.recurrence === "none" || data.occurrences != null, {
+    message: "Indica il numero di ripetizioni",
+    path: ["occurrences"],
   });
 export type JobInput = z.infer<typeof jobSchema>;
