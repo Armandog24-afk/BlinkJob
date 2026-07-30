@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { Bell } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ActionButton } from "@/components/action-button";
@@ -9,42 +10,7 @@ import {
   markNotificationReadAction,
 } from "@/features/notifications/actions";
 import type { NotificationItem } from "@/features/notifications/queries";
-
-function describeNotification(n: NotificationItem): string {
-  const p = n.payload;
-  const jobTitle = typeof p.job_title === "string" ? p.job_title : "un incarico";
-
-  switch (n.event_type) {
-    case "application_received":
-      return `Nuova candidatura per "${jobTitle}"`;
-    case "invite_received":
-      return `Hai ricevuto un invito per "${jobTitle}"`;
-    case "blinknow_job_available":
-      return `Nuovo incarico urgente BlinkNow: "${jobTitle}"`;
-    case "application_accepted":
-      return `La tua candidatura per "${jobTitle}" è stata confermata`;
-    case "invite_accepted":
-      return `Il lavoratore ha accettato l'invito per "${jobTitle}"`;
-    case "assignment_checked_in":
-      return `Check-in effettuato per "${jobTitle}"`;
-    case "assignment_completed":
-      return `Incarico "${jobTitle}" completato`;
-    case "payment_paid":
-      return `Pagamento ricevuto per "${jobTitle}"`;
-    case "review_received":
-      return `Hai ricevuto una nuova recensione (${p.rating ?? "-"}/5)`;
-    case "dispute_opened":
-      return `Segnalazione aperta su "${jobTitle}"`;
-    case "dispute_resolved":
-      return `Segnalazione su "${jobTitle}" risolta`;
-    case "account_status_changed":
-      return `Il tuo account è ora: ${p.status}`;
-    case "company_status_changed":
-      return `Lo stato della tua azienda è ora: ${p.status}`;
-    default:
-      return n.event_type;
-  }
-}
+import { describeNotification } from "@/features/notifications/describe";
 
 export function NotificationsBellClient({
   notifications,
@@ -116,6 +82,15 @@ export function NotificationsBellClient({
                 </div>
               ))
             )}
+          </div>
+          <div className="border-t px-2 py-1.5 text-center">
+            <Link
+              href="/notifications"
+              className="text-xs text-primary underline underline-offset-4"
+              onClick={() => setOpen(false)}
+            >
+              Vedi tutte e preferenze
+            </Link>
           </div>
         </div>
       )}

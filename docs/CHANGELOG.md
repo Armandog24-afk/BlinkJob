@@ -1,5 +1,19 @@
 # CHANGELOG — BlinkJob
 
+## M24 — Centro notifiche: quiet hours e dedup (2026-07-30)
+
+`database/migrations/032_notification_preferences.sql`: nuova tabella `notification_preferences`
+(ore silenziose, modalità di raggruppamento) e trigger `apply_notification_preferences` su ogni
+insert in `notifications` — nessuna delle ~15 RPC che generano notifiche è stata toccata, la logica
+è centralizzata nel trigger. Due comportamenti reali: le notifiche create durante le ore silenziose
+restano nascoste (`visible_at`) finché la fascia non termina, e notifiche duplicate sullo stesso
+evento/riferimento entro 24h si accorpano in una riga con contatore (`occurrences`) invece di
+accumularsi. **Limite documentato**: nessun canale email/SMS esiste ancora (categoria 2), quindi un
+vero digest "consegnato" non è possibile — `digest_mode` controlla solo il raggruppamento visivo
+nella nuova pagina `/notifications`, raggiungibile dal link "Vedi tutte e preferenze" nel dropdown.
+Verificato in produzione: apertura di una nuova disputa (che genera una notifica) non si è rotta
+dopo l'introduzione del trigger.
+
 ## M22 — Help center + appello dispute (2026-07-30)
 
 **Help center** (`/help`, pubblica, collegata con un link "Aiuto" sempre visibile nell'header di

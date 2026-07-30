@@ -731,6 +731,32 @@ export interface Database {
           },
         ];
       };
+      notification_preferences: {
+        Row: {
+          user_id: string;
+          quiet_hours_start: number | null;
+          quiet_hours_end: number | null;
+          digest_mode: "immediate" | "daily";
+          updated_at: string;
+        };
+        Insert: {
+          user_id: string;
+          quiet_hours_start?: number | null;
+          quiet_hours_end?: number | null;
+          digest_mode?: "immediate" | "daily";
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["notification_preferences"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "notification_preferences_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: true;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       notifications: {
         Row: {
           id: string;
@@ -739,6 +765,8 @@ export interface Database {
           channel: NotificationChannel;
           payload: Record<string, unknown>;
           read_at: string | null;
+          visible_at: string;
+          occurrences: number;
           created_at: string;
         };
         Insert: {
@@ -748,6 +776,8 @@ export interface Database {
           channel?: NotificationChannel;
           payload?: Record<string, unknown>;
           read_at?: string | null;
+          visible_at?: string;
+          occurrences?: number;
         };
         Update: Partial<Database["public"]["Tables"]["notifications"]["Insert"]>;
         Relationships: [
