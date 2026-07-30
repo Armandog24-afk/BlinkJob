@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth/session";
@@ -6,6 +7,7 @@ import { WithdrawButton } from "@/features/applications/components/withdraw-butt
 import { RespondInviteButtons } from "@/features/applications/components/respond-invite-buttons";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { formatCents } from "@/lib/utils";
 
 const NAV_ITEMS = [
@@ -38,7 +40,7 @@ export default async function WorkerApplicationsPage() {
   const { data: applications } = await supabase
     .from("applications")
     .select(
-      "id, type, status, created_at, jobs(title, starts_at, pay_amount_cents, pay_currency, companies(legal_name))"
+      "id, job_id, type, status, created_at, jobs(title, starts_at, pay_amount_cents, pay_currency, companies(legal_name))"
     )
     .eq("worker_id", user.id)
     .order("created_at", { ascending: false });
@@ -76,6 +78,11 @@ export default async function WorkerApplicationsPage() {
                     {app.type === "application" && WITHDRAWABLE.has(app.status) && (
                       <WithdrawButton applicationId={app.id} />
                     )}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      render={<Link href={`/messages/${app.job_id}/${user.id}`}>Chat</Link>}
+                    />
                   </CardContent>
                 </Card>
               );

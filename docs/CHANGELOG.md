@@ -1,5 +1,20 @@
 # CHANGELOG — BlinkJob
 
+## M21 — Chat contestuale azienda-lavoratore (2026-07-29)
+
+`database/migrations/030_messaging.sql`: nuove tabelle `conversations` (una per coppia job/worker,
+stessa chiave unique di `applications`), `messages`, `message_reports`. Tre RPC security definer:
+`get_or_create_conversation` (crea/riusa la conversazione, ma solo se esiste già una candidatura per
+quella coppia — non è un canale di contatto libero prima che l'azienda abbia valutato il
+lavoratore), `send_message` (mascheramento automatico via regex di email e numeri di telefono nel
+testo prima di salvarlo, più notifica alla controparte), `report_message` (segnalazione di un
+messaggio, visibile solo al segnalante e agli admin via RLS).
+
+Nuova pagina `/messages/[jobId]/[workerId]` (thread di chat, form di invio, pulsante "Segnala" su
+ogni messaggio della controparte). Collegata con un pulsante "Chat" da: candidature lavoratore,
+incarichi attivi/storico lavoratore, lista candidature di un incarico (azienda), assegnazioni
+azienda.
+
 ## M18-M20 — Template incarichi, talent pool, QR check-in, KPI admin (2026-07-29)
 
 **M18 — Job templates + talent pool (`database/migrations/028_job_templates_talent_pool.sql`)**:

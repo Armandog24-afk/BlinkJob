@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth/session";
@@ -9,6 +10,7 @@ import { OpenDisputeForm } from "@/features/disputes/components/open-dispute-for
 import { AddToTalentPoolForm } from "@/features/companies/components/add-to-talent-pool-form";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { formatCents, getSiteURL } from "@/lib/utils";
 import { generateQrDataUrl } from "@/lib/qr";
 
@@ -158,6 +160,11 @@ export default async function CompanyAssignmentsPage() {
           {(a.status === "in_progress" || a.status === "completed") && (
             <OpenDisputeForm assignmentId={a.id} />
           )}
+          <Button
+            size="sm"
+            variant="outline"
+            render={<Link href={`/messages/${a.job_id}/${a.worker_id}`}>Chat</Link>}
+          />
         </CardContent>
       </Card>
     );

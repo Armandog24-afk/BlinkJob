@@ -439,6 +439,74 @@ export interface Database {
           },
         ];
       };
+      conversations: {
+        Row: {
+          id: string;
+          job_id: string;
+          worker_id: string;
+          company_id: string;
+          created_at: string;
+        };
+        Insert: { id?: string; job_id: string; worker_id: string; company_id: string };
+        Update: never;
+        Relationships: [
+          {
+            foreignKeyName: "conversations_job_id_fkey";
+            columns: ["job_id"];
+            isOneToOne: false;
+            referencedRelation: "jobs";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "conversations_worker_id_fkey";
+            columns: ["worker_id"];
+            isOneToOne: false;
+            referencedRelation: "worker_profiles";
+            referencedColumns: ["user_id"];
+          },
+        ];
+      };
+      messages: {
+        Row: {
+          id: string;
+          conversation_id: string;
+          sender_id: string;
+          body: string;
+          contains_masked_contact: boolean;
+          created_at: string;
+        };
+        Insert: never;
+        Update: never;
+        Relationships: [
+          {
+            foreignKeyName: "messages_conversation_id_fkey";
+            columns: ["conversation_id"];
+            isOneToOne: false;
+            referencedRelation: "conversations";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      message_reports: {
+        Row: {
+          id: string;
+          message_id: string;
+          reporter_id: string;
+          reason: string | null;
+          created_at: string;
+        };
+        Insert: never;
+        Update: never;
+        Relationships: [
+          {
+            foreignKeyName: "message_reports_message_id_fkey";
+            columns: ["message_id"];
+            isOneToOne: false;
+            referencedRelation: "messages";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       applications: {
         Row: {
           id: string;
@@ -907,6 +975,25 @@ export interface Database {
           dispute_rate: number;
           payment_success_rate: number;
         }[];
+      };
+      get_or_create_conversation: {
+        Args: { p_job_id: string; p_worker_id: string };
+        Returns: string;
+      };
+      send_message: {
+        Args: { p_conversation_id: string; p_body: string };
+        Returns: {
+          id: string;
+          conversation_id: string;
+          sender_id: string;
+          body: string;
+          contains_masked_contact: boolean;
+          created_at: string;
+        };
+      };
+      report_message: {
+        Args: { p_message_id: string; p_reason?: string | null };
+        Returns: undefined;
       };
     };
   };

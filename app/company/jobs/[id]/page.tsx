@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth/session";
@@ -11,6 +12,7 @@ import { ApplicationDecisionButtons } from "@/features/applications/components/a
 import { SaveAsTemplateButton } from "@/features/jobs/components/save-as-template-button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { formatCents } from "@/lib/utils";
 import { getBadgeInfo, POINTS_LEVELS } from "@/lib/points/levels";
 import { formatWavePriorityLabel } from "@/lib/blinknow/config";
@@ -226,6 +228,13 @@ export default async function CompanyJobDetailPage({
                         <ApplicationDecisionButtons applicationId={app.id} jobId={job.id} />
                       </div>
                     )}
+                    <div className="mt-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        render={<Link href={`/messages/${job.id}/${app.worker_id}`}>Chat</Link>}
+                      />
+                    </div>
                   </div>
                 );
               })}

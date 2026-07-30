@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth/session";
@@ -7,6 +8,7 @@ import { ReviewForm } from "@/features/reviews/components/review-form";
 import { OpenDisputeForm } from "@/features/disputes/components/open-dispute-form";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { formatCents } from "@/lib/utils";
 
 const NAV_ITEMS = [
@@ -39,14 +41,15 @@ const ACTIVE_STATUSES = new Set(["confirmed", "in_progress"]);
 export default async function WorkerAssignmentsPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
+  const workerId = user.id;
 
   const supabase = await createClient();
   const { data: assignments } = await supabase
     .from("assignments")
     .select(
-      "id, status, confirmed_at, confirmed_terms_snapshot, jobs(title, companies(legal_name), company_locations(label, address))"
+      "id, job_id, status, confirmed_at, confirmed_terms_snapshot, jobs(title, companies(legal_name), company_locations(label, address))"
     )
-    .eq("worker_id", user.id)
+    .eq("worker_id", workerId)
     .order("confirmed_at", { ascending: false });
 
   const assignmentIds = (assignments ?? []).map((a) => a.id);
@@ -68,7 +71,7 @@ export default async function WorkerAssignmentsPage() {
     ? await supabase
         .from("reviews")
         .select("assignment_id")
-        .eq("author_id", user.id)
+        .eq("author_id", workerId)
         .in("assignment_id", completedIds)
     : { data: [] as { assignment_id: string }[] };
   const reviewedIds = new Set((ownReviews ?? []).map((r) => r.assignment_id));
@@ -127,6 +130,11 @@ export default async function WorkerAssignmentsPage() {
           {(a.status === "in_progress" || a.status === "completed") && (
             <OpenDisputeForm assignmentId={a.id} />
           )}
+          <Button
+            size="sm"
+            variant="outline"
+            render={<Link href={`/messages/${a.job_id}/${workerId}`}>Chat</Link>}
+          />
         </CardContent>
       </Card>
     );
