@@ -15,6 +15,7 @@ const NAV_ITEMS = [
   { href: "/worker/applications", label: "Candidature" },
   { href: "/worker/assignments", label: "I miei incarichi" },
   { href: "/worker/disputes", label: "Dispute" },
+  { href: "/worker/missions", label: "Missioni" },
   { href: "/worker/payments", label: "Pagamenti" },
   { href: "/worker/profile", label: "Profilo" },
 ];
@@ -60,6 +61,10 @@ export default async function WorkerProfilePage() {
     profile_completed_badge: "Badge: profilo completato",
     review_contributed: "Recensione lasciata",
     assignment_completed_no_issues: "Incarico completato senza problemi",
+    mission_prima_candidatura: "Missione: prima candidatura",
+    mission_primo_incarico_completato: "Missione: primo incarico completato",
+    mission_tre_incarichi_al_mese: "Missione: 3 incarichi questo mese",
+    mission_due_recensioni_al_mese: "Missione: 2 recensioni questo mese",
   };
 
   return (

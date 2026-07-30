@@ -930,6 +930,34 @@ export interface Database {
           },
         ];
       };
+      mission_completions: {
+        Row: {
+          id: string;
+          user_id: string;
+          mission_key: string;
+          period_key: string;
+          completed_at: string;
+          points_awarded: number;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          mission_key: string;
+          period_key: string;
+          completed_at?: string;
+          points_awarded: number;
+        };
+        Update: never;
+        Relationships: [
+          {
+            foreignKeyName: "mission_completions_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
     };
     Views: Record<string, never>;
     Functions: {
@@ -1084,6 +1112,10 @@ export interface Database {
       };
       appeal_dispute: {
         Args: { p_dispute_id: string; p_reason?: string | null };
+        Returns: undefined;
+      };
+      refresh_worker_missions: {
+        Args: Record<string, never>;
         Returns: undefined;
       };
     };

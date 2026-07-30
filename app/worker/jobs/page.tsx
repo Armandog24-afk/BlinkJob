@@ -14,6 +14,7 @@ const NAV_ITEMS = [
   { href: "/worker/applications", label: "Candidature" },
   { href: "/worker/assignments", label: "I miei incarichi" },
   { href: "/worker/disputes", label: "Dispute" },
+  { href: "/worker/missions", label: "Missioni" },
   { href: "/worker/payments", label: "Pagamenti" },
   { href: "/worker/profile", label: "Profilo" },
 ];

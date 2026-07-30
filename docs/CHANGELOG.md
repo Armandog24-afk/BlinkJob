@@ -1,5 +1,22 @@
 # CHANGELOG — BlinkJob
 
+## M27 — Missioni con reward BlinkPoints (2026-07-30)
+
+`database/migrations/035_missions.sql`: nuova tabella `mission_completions` e RPC
+`refresh_worker_missions()`. A differenza dei badge (026, traguardi permanenti one-shot), le
+missioni sono obiettivi più piccoli — alcuni una tantum, altri ripetibili ogni mese
+(`period_key = 'YYYY-MM'`) — con reward in punti tramite l'infrastruttura esistente
+(`award_points`, 024). Catalogo iniziale: prima candidatura (+5), primo incarico completato (+15),
+3 incarichi in un mese (+30), 2 recensioni in un mese (+10).
+
+**Limite documentato**: nessun sistema di eventi/cron in questo stack — il completamento si
+verifica quando il lavoratore visita `/worker/missions` (che chiama la RPC), non nell'istante
+esatto in cui la soglia viene raggiunta. Innocuo per ricompense non urgenti come queste.
+
+Nuova pagina `/worker/missions` con barre di progresso per ciascuna missione, raggiungibile dal
+menu dell'area lavoratore. Verificato in produzione: invio di una candidatura → missione "Prima
+candidatura" segnata completata e 5 punti accreditati visibili nel ledger del profilo.
+
 ## M26 — Matching avanzato: geofencing, incarichi ricorrenti, import CV (2026-07-30)
 
 **Geofencing** (`database/migrations/034_advanced_geofencing.sql`): nuovo campo opzionale
